@@ -32,7 +32,7 @@ This service runs a turn-by-turn, real-life adventure game in LINE:
    instructions=["The gate opens.", "Solve this clue:", "What has keys but cannot open locks?"],
    ```
 
-      Replies can also include LINE image or video messages. Media URLs must be HTTPS and publicly reachable by LINE:
+        Replies can also include LINE image or video messages. Media URLs must be HTTPS and publicly reachable by LINE:
 
       ```python
       success_message=[

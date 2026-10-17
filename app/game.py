@@ -53,7 +53,10 @@ GAME_STEPS: list[GameStep] = [
         title="Find the item",
         instructions="Send a photo of a computer.",
         kind="photo",
-        photo_check="The photo must clearly show the item named in the player's instructions.",
+        photo_check=(
+            "The photo must clearly show a computer. Reject the photo if no computer "
+            "is visible, or if the computer is too small, obscured, or uncertain."
+        ),
         success_message="Photo accepted. Now send your location from the item.",
     ),
     GameStep(

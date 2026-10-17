@@ -103,6 +103,8 @@ async def handle_event(event: dict[str, Any]) -> None:
         if not message_id:
             logger.warning("Ignoring image event without a message ID")
             return
+        if source.get("type") == "user":
+            await line_client.start_loading(user_id)
         image, mime_type = await line_client.get_content(message_id)
         accepted = await gemini_client.check_image(image, mime_type, step.photo_check)
         if accepted:

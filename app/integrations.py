@@ -74,6 +74,17 @@ class LineClient:
         response.raise_for_status()
         return response.content, response.headers.get("content-type", "application/octet-stream")
 
+    async def start_loading(self, chat_id: str, loading_seconds: int = 60) -> None:
+        response = await self._client.post(
+            "https://api.line.me/v2/bot/chat/loading/start",
+            headers={
+                "Authorization": f"Bearer {self._access_token}",
+                "Content-Type": "application/json",
+            },
+            json={"chatId": chat_id, "loadingSeconds": loading_seconds},
+        )
+        response.raise_for_status()
+
     async def reply(self, reply_token: str, message: Message | list[Message]) -> None:
         messages = [message] if isinstance(message, str) else message
         response = await self._client.post(
@@ -129,7 +140,14 @@ class GeminiClient:
             params={"key": self._api_key},
             json={
                 "systemInstruction": {
-                    "parts": [{"text": f"{instructions} Reply with only YES or NO."}]
+                    "parts": [{
+                        "text": (
+                            "Decide whether the image satisfies this requirement: "
+                            f"{instructions} Return YES only when the requirement is clearly met. "
+                            "Return NO when the required subject is absent, obscured, too small, "
+                            "or uncertain. Reply with exactly YES or NO."
+                        )
+                    }]
                 },
                 "contents": [{
                     "role": "user",

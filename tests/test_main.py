@@ -103,3 +103,41 @@ async def test_line_client_sends_image_and_video_messages() -> None:
         {"type": "image", "originalContentUrl": "https://example.com/photo.jpg", "previewImageUrl": "https://example.com/preview.jpg"},
         {"type": "video", "originalContentUrl": "https://example.com/video.mp4", "previewImageUrl": "https://example.com/video-preview.jpg", "trackingId": "video-1"},
     ]
+
+
+async def test_line_client_starts_loading_animation() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(202)
+
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    line_client = LineClient("access-token", http_client)
+    await line_client.start_loading("user-id")
+    await http_client.aclose()
+
+    assert requests[0].url == "https://api.line.me/v2/bot/chat/loading/start"
+    assert json.loads(requests[0].content) == {"chatId": "user-id", "loadingSeconds": 60}
+
+
+async def test_gemini_image_check_requires_clear_subject() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={"candidates": [{"content": {"parts": [{"text": "NO"}]}}]},
+        )
+
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    gemini_client = main.GeminiClient("api-key", "model", http_client)
+    assert not await gemini_client.check_image(
+        b"image", "image/jpeg", "The photo must clearly show a computer."
+    )
+    await http_client.aclose()
+
+    prompt = json.loads(requests[0].content)["systemInstruction"]["parts"][0]["text"]
+    assert "Return YES only when the requirement is clearly met" in prompt
+    assert "Return NO when the required subject is absent" in prompt
