@@ -1,12 +1,12 @@
 # LINE Photo Bot
 
-This service runs a turn-by-turn, real-life adventure game in LINE:
+This service runs the Sanxia blue-dye time-travel adventure in LINE:
 
 - verifies LINE webhook signatures;
-- looks up the sender in a local CSV file;
+- looks up the sender in a local SQLite database;
 - registers a new player and sends the first challenge;
-- checks text answers, verifies photos with Gemini, and verifies LINE location messages;
-- stores each player's current turn in a local CSV file.
+- checks the story's text answers and verifies landmark photos with Gemini;
+- stores each player's current turn and an audit trail of LINE traffic locally.
 
 ## Setup
 
@@ -18,9 +18,17 @@ This service runs a turn-by-turn, real-life adventure game in LINE:
    pip install -e '.[dev]'
    ```
 
-2. Copy `.env.example` to `.env` and fill in the LINE channel credentials and Gemini API key. `USER_CSV_PATH` defaults to `users.csv`.
+2. Copy `.env.example` to `.env` and fill in the LINE channel credentials and Gemini API key. `DATABASE_PATH` defaults to `bot.db`, and downloaded images default to `media/`.
 
-3. Edit `GAME_STEPS` in [app/game.py](app/game.py) to write your adventure. Add steps in order with:
+3. The complete Sanxia storyline is kept word-for-word in [main-storyline.txt](main-storyline.txt) and loaded by [app/game.py](app/game.py). It includes:
+
+   - the ancient well clue in 民權街 84 巷;
+   - blue dye, dyeing-process ordering, and the 青出於染 flag;
+   - the 庄役場 and old dye-shop text challenges;
+   - the 大菁 plant and 1905 history challenges;
+   - three separate Sanxia Zushi Temple photo challenges.
+
+   To customize the adventure, add steps in order with:
 
    - `kind="text"`: put accepted answers in `answer`, separated by commas.
    - `kind="photo"`: describe what Gemini should verify in `photo_check`.
@@ -32,7 +40,7 @@ This service runs a turn-by-turn, real-life adventure game in LINE:
    instructions=["The gate opens.", "Solve this clue:", "What has keys but cannot open locks?"],
    ```
 
-        Replies can also include LINE image or video messages. Media URLs must be HTTPS and publicly reachable by LINE:
+      Replies can also include LINE image or video messages. Media URLs must be HTTPS and publicly reachable by LINE:
 
       ```python
       success_message=[
@@ -44,7 +52,15 @@ This service runs a turn-by-turn, real-life adventure game in LINE:
 
       LINE allows up to 5 messages per reply. Both media types need `originalContentUrl` and `previewImageUrl`; video messages may also include `trackingId`.
 
-      `success_message` is sent after a correct response, followed by the next step's instructions. Existing two-column `users.csv` files are upgraded automatically.
+      `success_message` is sent after a correct response, followed by the next step's instructions. Incoming webhook events, outgoing replies, challenge submissions, and downloaded photo checks are retained in the SQLite database.
+
+   Players can send `開始` or `重來` to restart, and `進度` to see the current challenge. Text answers ignore spaces and common Chinese or English punctuation.
+
+   To reset every player's current progress while keeping the audit history, run:
+
+   ```bash
+   python -m app.reset
+   ```
 
 4. Run the webhook:
 

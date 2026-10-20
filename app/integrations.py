@@ -1,5 +1,9 @@
 import base64
 import csv
+import json
+import logging
+import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -7,58 +11,165 @@ import httpx
 
 from .game import Message
 
+logger = logging.getLogger(__name__)
+
 
 class UserStore:
-    def __init__(self, csv_path: str):
-        self._csv_path = Path(csv_path)
-        self._csv_path.parent.mkdir(parents=True, exist_ok=True)
-        if not self._csv_path.exists():
-            with self._csv_path.open("w", newline="", encoding="utf-8") as file:
-                csv.writer(file).writerow(["user_id", "state", "step_index"])
-        else:
+    def __init__(self, database_path: str):
+        self._database_path = Path(database_path)
+        database_exists = self._database_path.exists()
+        self._database_path.parent.mkdir(parents=True, exist_ok=True)
+        self._initialize()
+        if not database_exists:
             self._migrate_legacy_csv()
 
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self._database_path)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        return connection
+
+    def _initialize(self) -> None:
+        with self._connect() as connection:
+            connection.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS players (
+                    user_id TEXT PRIMARY KEY,
+                    current_challenge_id INTEGER NOT NULL DEFAULT 0,
+                    completed_at TEXT
+                );
+                CREATE TABLE IF NOT EXISTS submissions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    challenge_id INTEGER NOT NULL,
+                    line_event_id TEXT,
+                    message_type TEXT NOT NULL,
+                    result TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES players(user_id)
+                );
+                CREATE TABLE IF NOT EXISTS photo_submissions (
+                    submission_id INTEGER PRIMARY KEY,
+                    line_message_id TEXT NOT NULL,
+                    local_path_or_url TEXT NOT NULL,
+                    ai_result TEXT,
+                    FOREIGN KEY (submission_id) REFERENCES submissions(id)
+                );
+                CREATE TABLE IF NOT EXISTS line_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    line_event_id TEXT,
+                    user_id TEXT,
+                    direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
+                    payload TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_submissions_user_id ON submissions(user_id);
+                CREATE INDEX IF NOT EXISTS idx_line_events_user_id ON line_events(user_id);
+                """
+            )
+
     def _migrate_legacy_csv(self) -> None:
-        with self._csv_path.open(newline="", encoding="utf-8") as file:
-            reader = csv.DictReader(file)
-            rows = list(reader)
-            if reader.fieldnames == ["user_id", "state", "step_index"]:
-                return
-        with self._csv_path.open("w", newline="", encoding="utf-8") as file:
-            writer = csv.DictWriter(file, fieldnames=["user_id", "state", "step_index"])
-            writer.writeheader()
+        legacy_path = self._database_path.with_name("users.csv")
+        if legacy_path == self._database_path or not legacy_path.exists():
+            return
+        with legacy_path.open(newline="", encoding="utf-8") as file:
+            rows = list(csv.DictReader(file))
+        with self._connect() as connection:
             for row in rows:
-                writer.writerow({
-                    "user_id": row.get("user_id", ""),
-                    "state": row.get("state", "new"),
-                    "step_index": row.get("step_index") or "0",
-                })
+                user_id = row.get("user_id")
+                if user_id:
+                    connection.execute(
+                        "INSERT OR IGNORE INTO players (user_id, current_challenge_id) VALUES (?, ?)",
+                        (user_id, int(row.get("step_index") or 0)),
+                    )
+
+    @staticmethod
+    def _now() -> str:
+        return datetime.now(timezone.utc).isoformat()
 
     def get_step_index(self, user_id: str) -> int:
-        with self._csv_path.open(newline="", encoding="utf-8") as file:
-            for row in csv.DictReader(file):
-                if row.get("user_id") == user_id:
-                    return int(row.get("step_index") or 0)
-        return 0
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT current_challenge_id FROM players WHERE user_id = ?", (user_id,)
+            ).fetchone()
+        return int(row["current_challenge_id"]) if row else 0
 
     def set_step_index(self, user_id: str, step_index: int) -> None:
-        with self._csv_path.open(newline="", encoding="utf-8") as file:
-            rows = list(csv.DictReader(file))
-        for row in rows:
-            if row.get("user_id") == user_id:
-                row["step_index"] = str(step_index)
-        with self._csv_path.open("w", newline="", encoding="utf-8") as file:
-            writer = csv.DictWriter(file, fieldnames=["user_id", "state", "step_index"])
-            writer.writeheader()
-            writer.writerows(rows)
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE players SET current_challenge_id = ?, completed_at = NULL WHERE user_id = ?",
+                (step_index, user_id),
+            )
+
+    def mark_completed(self, user_id: str) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE players SET completed_at = ? WHERE user_id = ?", (self._now(), user_id)
+            )
+
+    def reset_user(self, user_id: str) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE players SET current_challenge_id = 0, completed_at = NULL WHERE user_id = ?",
+                (user_id,),
+            )
+
+    def reset_all(self) -> None:
+        with self._connect() as connection:
+            connection.execute("UPDATE players SET current_challenge_id = 0, completed_at = NULL")
 
     def has_user(self, user_id: str) -> bool:
-        with self._csv_path.open(newline="", encoding="utf-8") as file:
-            return any(row.get("user_id") == user_id for row in csv.DictReader(file))
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM players WHERE user_id = ?", (user_id,)
+            ).fetchone()
+        return row is not None
 
     def add_user(self, user_id: str) -> None:
-        with self._csv_path.open("a", newline="", encoding="utf-8") as file:
-            csv.writer(file).writerow([user_id, "new", "0"])
+        with self._connect() as connection:
+            connection.execute("INSERT OR IGNORE INTO players (user_id) VALUES (?)", (user_id,))
+
+    def record_line_event(
+        self, line_event_id: str | None, user_id: str | None, direction: str, payload: Any
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO line_events (line_event_id, user_id, direction, payload, created_at) VALUES (?, ?, ?, ?, ?)",
+                (line_event_id, user_id, direction, json.dumps(payload, ensure_ascii=False), self._now()),
+            )
+
+    def has_line_event(self, line_event_id: str | None) -> bool:
+        if not line_event_id:
+            return False
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM line_events WHERE line_event_id = ? AND direction = 'inbound' LIMIT 1",
+                (line_event_id,),
+            ).fetchone()
+        return row is not None
+
+    def start_submission(
+        self, user_id: str, challenge_id: int, line_event_id: str | None, message_type: str
+    ) -> int:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "INSERT INTO submissions (user_id, challenge_id, line_event_id, message_type, result, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (user_id, challenge_id, line_event_id, message_type, "received", self._now()),
+            )
+        return int(cursor.lastrowid)
+
+    def finish_submission(self, submission_id: int, result: str) -> None:
+        with self._connect() as connection:
+            connection.execute("UPDATE submissions SET result = ? WHERE id = ?", (result, submission_id))
+
+    def add_photo_submission(
+        self, submission_id: int, line_message_id: str, local_path_or_url: str, ai_result: str | None
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT OR REPLACE INTO photo_submissions (submission_id, line_message_id, local_path_or_url, ai_result) VALUES (?, ?, ?, ?)",
+                (submission_id, line_message_id, local_path_or_url, ai_result),
+            )
 
 
 class LineClient:
@@ -98,7 +209,11 @@ class LineClient:
                 "messages": [self._format_message(message) for message in messages[:5]],
             },
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError:
+            logger.error("LINE reply failed (%s): %s", response.status_code, response.text)
+            raise
 
     @staticmethod
     def _format_message(message: Message) -> dict[str, str]:

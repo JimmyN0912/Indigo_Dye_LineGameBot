@@ -17,7 +17,8 @@ def load_dotenv() -> None:
 class Settings:
     line_channel_access_token: str = ""
     line_channel_secret: str = ""
-    user_csv_path: str = "users.csv"
+    database_path: str = "bot.db"
+    media_path: str = "media"
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.5-flash-lite"
 
@@ -27,7 +28,8 @@ class Settings:
         return cls(
             line_channel_access_token=os.getenv("LINE_CHANNEL_ACCESS_TOKEN", ""),
             line_channel_secret=os.getenv("LINE_CHANNEL_SECRET", ""),
-            user_csv_path=os.getenv("USER_CSV_PATH", "users.csv"),
+            database_path=os.getenv("DATABASE_PATH", "bot.db"),
+            media_path=os.getenv("MEDIA_PATH", "media"),
             gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
             gemini_model=os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite"),
         )
