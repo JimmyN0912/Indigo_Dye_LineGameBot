@@ -110,6 +110,16 @@ class UserStore:
     def reset_user(self, user_id: str) -> None:
         with self._connect() as connection:
             connection.execute(
+                """
+                DELETE FROM photo_submissions
+                WHERE submission_id IN (
+                    SELECT id FROM submissions WHERE user_id = ?
+                )
+                """,
+                (user_id,),
+            )
+            connection.execute("DELETE FROM submissions WHERE user_id = ?", (user_id,))
+            connection.execute(
                 "UPDATE players SET current_challenge_id = 0, completed_at = NULL WHERE user_id = ?",
                 (user_id,),
             )
@@ -170,6 +180,19 @@ class UserStore:
                 "INSERT OR REPLACE INTO photo_submissions (submission_id, line_message_id, local_path_or_url, ai_result) VALUES (?, ?, ?, ?)",
                 (submission_id, line_message_id, local_path_or_url, ai_result),
             )
+
+    def photo_categories(self, user_id: str, challenge_id: int) -> set[str]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT photo_submissions.ai_result
+                FROM photo_submissions
+                JOIN submissions ON submissions.id = photo_submissions.submission_id
+                WHERE submissions.user_id = ? AND submissions.challenge_id = ?
+                """,
+                (user_id, challenge_id),
+            ).fetchall()
+        return {str(row["ai_result"]) for row in rows if row["ai_result"]}
 
 
 class LineClient:
@@ -275,3 +298,42 @@ class GeminiClient:
         data: dict[str, Any] = response.json()
         result = data["candidates"][0]["content"]["parts"][0]["text"].strip().upper()
         return result.startswith("YES")
+
+    async def classify_image(
+        self,
+        image: bytes,
+        mime_type: str,
+        instructions: str,
+        categories: tuple[str, ...],
+        references: list[tuple[bytes, str]],
+    ) -> str | None:
+        parts: list[dict[str, Any]] = [{"text": (
+            f"{instructions} Classify the user's image as exactly one of: "
+            f"{', '.join(categories)}. Return UNKNOWN if none is clearly shown."
+        )}, {"inline_data": {
+            "mime_type": mime_type,
+            "data": base64.b64encode(image).decode("ascii"),
+        }}]
+        for category, (reference, reference_mime_type) in zip(categories, references):
+            parts.extend([
+                {"text": f"Reference image for category: {category}"},
+                {"inline_data": {
+                    "mime_type": reference_mime_type,
+                    "data": base64.b64encode(reference).decode("ascii"),
+                }},
+            ])
+        response = await self._client.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{self._model}:generateContent",
+            params={"key": self._api_key},
+            json={
+                "systemInstruction": {"parts": [{
+                    "text": "Compare the user's photo with the reference images. Reply with exactly one category name or UNKNOWN."
+                }]},
+                "contents": [{"role": "user", "parts": parts}],
+                "generationConfig": {"responseModalities": ["TEXT"]},
+            },
+        )
+        response.raise_for_status()
+        data: dict[str, Any] = response.json()
+        result = data["candidates"][0]["content"]["parts"][0]["text"].strip().casefold()
+        return next((category for category in categories if result == category.casefold()), None)

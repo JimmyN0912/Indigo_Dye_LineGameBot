@@ -13,12 +13,16 @@ def load_dotenv() -> None:
             os.environ.setdefault(name.strip(), value.strip().strip('"').strip("'"))
 
 
+load_dotenv()
+
+
 @dataclass(frozen=True)
 class Settings:
     line_channel_access_token: str = ""
     line_channel_secret: str = ""
     database_path: str = "bot.db"
     media_path: str = "media"
+    asset_base_url: str = "http://localhost:8000/assets"
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.5-flash-lite"
 
@@ -30,6 +34,7 @@ class Settings:
             line_channel_secret=os.getenv("LINE_CHANNEL_SECRET", ""),
             database_path=os.getenv("DATABASE_PATH", "bot.db"),
             media_path=os.getenv("MEDIA_PATH", "media"),
+            asset_base_url=os.getenv("ASSET_BASE_URL", "http://localhost:8000/assets"),
             gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
             gemini_model=os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite"),
         )

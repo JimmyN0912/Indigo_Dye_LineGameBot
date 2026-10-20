@@ -54,6 +54,28 @@ def test_user_store_uses_local_sqlite_database(tmp_path) -> None:
     assert store.get_step_index("user-1") == 0
 
 
+def test_reset_user_clears_previous_photo_categories(tmp_path) -> None:
+    store = UserStore(str(tmp_path / "bot.db"))
+    store.add_user("user-1")
+
+    submission_ids = [
+        store.start_submission("user-1", 8, f"event-{index}", "image")
+        for index in range(3)
+    ]
+    for submission_id, category in zip(
+        submission_ids, ("carved pillar", "bell", "temple exterior")
+    ):
+        store.add_photo_submission(submission_id, f"message-{submission_id}", "/tmp/photo", category)
+
+    assert store.photo_categories("user-1", 8) == {
+        "carved pillar", "bell", "temple exterior"
+    }
+
+    store.reset_user("user-1")
+
+    assert store.photo_categories("user-1", 8) == set()
+
+
 def test_text_answers_are_case_insensitive_and_support_alternatives() -> None:
     step = GameStep(title="Clue", instructions="Answer", kind="text", answer="north, N")
 
@@ -68,13 +90,44 @@ def test_commands_ignore_chat_punctuation() -> None:
 
 
 def test_storyline_has_all_required_challenges() -> None:
-    assert len(GAME_STEPS) == 11
+    assert len(GAME_STEPS) == 9
     assert [step.title for step in GAME_STEPS[:3]] == [
         "尋找另一口古井",
         "三峽的傳統產業",
         "藍染製作流程",
     ]
-    assert sum(step.kind == "photo" for step in GAME_STEPS) == 4
+    assert sum(step.kind == "photo" for step in GAME_STEPS) == 2
+
+
+def test_photo_guides_and_chapter_seven_references_are_configured() -> None:
+    assert GAME_STEPS[6].instructions[-1]["originalContentUrl"].endswith("/Ch5_Photo.jpg")
+    chapter_seven = GAME_STEPS[8]
+    assert chapter_seven.instructions[-1]["originalContentUrl"].endswith("/Ch7_Photo.jpg")
+    assert chapter_seven.photo_references == (
+        "Ch7_Ref1.jpg", "Ch7_Ref2.jpg", "Ch7_Ref3.jpg"
+    )
+    assert chapter_seven.photo_categories == (
+        "carved pillar", "bell", "temple exterior"
+    )
+
+
+def test_final_photo_challenge_has_traditional_chinese_labels() -> None:
+    assert main.PHOTO_CATEGORY_LABELS == {
+        "carved pillar": "百鳥朝梅柱",
+        "bell": "鐘",
+        "temple exterior": "祖師廟外觀",
+    }
+
+
+def test_final_photo_success_message_includes_the_epilogue() -> None:
+    success_messages = message_list(GAME_STEPS[8].success_message)
+
+    assert len(success_messages) == 2
+    assert "終章" not in "\n".join(success_messages)
+    assert success_messages[0].endswith("勾玉閉上了眼。")
+    assert "旅程結束了，但故事還沒有" in success_messages[1]
+    assert success_messages[1].startswith("旁白：爸爸媽媽站在勾玉面前")
+    assert success_messages[1].endswith("讓三峽的藍，繼續被記得。")
 
 
 def test_first_turn_separates_story_from_exact_challenge() -> None:
@@ -109,7 +162,10 @@ def test_player_messages_exclude_facilitator_only_lines() -> None:
 
 
 def test_each_step_uses_its_own_challenge_order() -> None:
-    challenges = [message_list(step.instructions)[-1] for step in GAME_STEPS]
+    challenges = [
+        next(message for message in reversed(message_list(step.instructions)) if isinstance(message, str))
+        for step in GAME_STEPS
+    ]
 
     assert "第ㄧ關" in challenges[0]
     assert "第二關" in challenges[1]
@@ -134,7 +190,7 @@ def test_storyline_answers_accept_the_published_solutions() -> None:
     expected_answers = {
         0: "民權街 84 巷",
         1: "藍染",
-        2: "採收、浸泡、打藍、藍靛、建藍",
+        2: "青出於藍",
         4: "B",
         5: "外洋、重資",
         6: "A",

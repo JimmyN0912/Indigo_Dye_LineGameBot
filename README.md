@@ -26,12 +26,13 @@ This service runs the Sanxia blue-dye time-travel adventure in LINE:
    - blue dye, dyeing-process ordering, and the 青出於染 flag;
    - the 庄役場 and old dye-shop text challenges;
    - the 大菁 plant and 1905 history challenges;
-   - three separate Sanxia Zushi Temple photo challenges.
+   - the chapter 5 guide photo, delivered with its challenge;
+   - one chapter 7 challenge requiring three Sanxia Zushi Temple photos in any order.
 
    To customize the adventure, add steps in order with:
 
    - `kind="text"`: put accepted answers in `answer`, separated by commas.
-   - `kind="photo"`: describe what Gemini should verify in `photo_check`.
+   - `kind="photo"`: describe what Gemini should verify in `photo_check`. Chapter 7 also compares each upload with the three `assets/Ch7_Ref*.jpg` reference photos and tracks the matched subjects independently of upload order.
    - `kind="location"`: set the destination `latitude`, `longitude`, and allowed `radius_meters`.
 
    Every step's `instructions` are sent to the player. Use either one string or a list of strings to send multiple separate LINE messages in one turn:
@@ -49,6 +50,8 @@ This service runs the Sanxia blue-dye time-travel adventure in LINE:
          {"type": "video", "originalContentUrl": "https://example.com/video.mp4", "previewImageUrl": "https://example.com/video-preview.jpg", "trackingId": "adventure-video-1"},
       ],
       ```
+
+      The guide photos are served from `/assets`. Set `ASSET_BASE_URL` to the public HTTPS URL ending in `/assets` before starting the bot (for example, `https://YOUR_PUBLIC_HOST/assets`).
 
       LINE allows up to 5 messages per reply. Both media types need `originalContentUrl` and `previewImageUrl`; video messages may also include `trackingId`.
 

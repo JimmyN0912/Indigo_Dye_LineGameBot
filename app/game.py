@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from math import asin, cos, radians, sin, sqrt
+import os
 import re
 from pathlib import Path
 from typing import Literal, NotRequired, TypedDict
@@ -40,6 +41,8 @@ class GameStep:
     longitude: float | None = None
     radius_meters: float = 100
     photo_check: str = ""
+    photo_references: tuple[str, ...] = ()
+    photo_categories: tuple[str, ...] = ()
     success_message: MessageContent = ""
 
 
@@ -47,6 +50,12 @@ class GameStep:
 # supplied file prevents the game configuration from silently paraphrasing it.
 _STORYLINE_PATH = Path(__file__).resolve().parent.parent / "main-storyline.txt"
 _STORYLINE = _STORYLINE_PATH.read_text(encoding="utf-8")
+
+
+def _asset_message(filename: str) -> ImageMessage:
+    base_url = os.getenv("ASSET_BASE_URL", "http://localhost:8000/assets").rstrip("/")
+    url = f"{base_url}/{filename}"
+    return {"type": "image", "originalContentUrl": url, "previewImageUrl": url}
 
 
 def _story_between(start: str, end: str) -> str:
@@ -59,6 +68,17 @@ def _story_after(start: str, end: str) -> str:
     start_index = _STORYLINE.index(start) + len(start)
     end_index = _STORYLINE.index(end, start_index)
     return _STORYLINE[start_index:end_index].strip()
+
+
+def _story_to_end(start: str) -> str:
+    return _STORYLINE[_STORYLINE.index(start) + len(start):].strip()
+
+
+def _story_split_on_heading(start: str, heading: str) -> list[str]:
+    before_heading, marker, after_heading = _story_to_end(start).partition(heading)
+    if not marker:
+        return [_story_to_end(start)]
+    return [part.strip() for part in (before_heading, after_heading) if part.strip()]
 
 
 def _story_narrative(start: str, end: str) -> str:
@@ -168,6 +188,7 @@ GAME_STEPS: list[GameStep] = [
         instructions=[
             _story_narrative("第五章", "謎題"),
             _story_challenge("第五章", "答案：A(大菁)"),
+            _asset_message("Ch5_Photo.jpg"),
         ],
         kind="text",
         answer="A,A.大菁,大菁",
@@ -185,37 +206,20 @@ GAME_STEPS: list[GameStep] = [
         success_message=_story_after("答案:1905", "第七章"),
     ),
     GameStep(
-        title="祖師廟的印記（一）",
+        title="祖師廟的印記",
         chapter=7,
         instructions=[
             _story_narrative("第七章", "謎題"),
             _story_challenge("第七章", "答案:照片x3"),
+            _asset_message("Ch7_Photo.jpg"),
         ],
         kind="photo",
-        photo_check="The photo must clearly show the Ba-niao-chao-mei carved pillar or its bird-and-plum decorative detail at Sanxia Zushi Temple.",
-        success_message="",
-    ),
-    GameStep(
-        title="祖師廟的印記（二）",
-        chapter=7,
-        instructions=[
-            _story_narrative("第七章", "謎題"),
-            _story_challenge("第七章", "答案:照片x3"),
-        ],
-        kind="photo",
-        photo_check="The photo must clearly show a bell at Sanxia Zushi Temple.",
-        success_message="",
-    ),
-    GameStep(
-        title="祖師廟的印記（三）",
-        chapter=7,
-        instructions=[
-            _story_narrative("第七章", "謎題"),
-            _story_challenge("第七章", "答案:照片x3"),
-        ],
-        kind="photo",
-        photo_check="The photo must clearly show the exterior facade of Sanxia Zushi Temple.",
-        success_message=_story_after("答案:照片x3 (百鳥朝梅柱、鐘、祖師廟外觀)", "終章"),
+        photo_check="The photo must clearly show one of the three required subjects at Sanxia Zushi Temple.",
+        photo_references=("Ch7_Ref1.jpg", "Ch7_Ref2.jpg", "Ch7_Ref3.jpg"),
+        photo_categories=("carved pillar", "bell", "temple exterior"),
+        success_message=_story_split_on_heading(
+            "答案:照片x3 (百鳥朝梅柱、鐘、祖師廟外觀)", "終章"
+        ),
     ),
 ]
 

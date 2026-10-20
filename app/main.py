@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.staticfiles import StaticFiles
 
 from .config import Settings
 from .game import Message, answer_is_correct, current_step, distance_meters, message_list
@@ -17,10 +18,21 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="LINE Photo Bot")
+app.mount(
+    "/assets",
+    StaticFiles(directory=Path(__file__).resolve().parent.parent / "assets"),
+    name="assets",
+)
 settings = Settings.from_environment()
 user_store: UserStore | None = None
 line_client = LineClient(settings.line_channel_access_token)
 gemini_client = GeminiClient(settings.gemini_api_key, settings.gemini_model)
+
+PHOTO_CATEGORY_LABELS = {
+    "carved pillar": "百鳥朝梅柱",
+    "bell": "鐘",
+    "temple exterior": "祖師廟外觀",
+}
 
 
 def normalize_command(value: str) -> str:
@@ -115,7 +127,7 @@ async def handle_event(event: dict[str, Any]) -> None:
 
     step = current_step(store.get_step_index(user_id))
     if step is None:
-        await send_reply(store, reply_token, user_id, "You completed the adventure. Thanks for playing!")
+        await send_reply(store, reply_token, user_id, "旅程已完成，謝謝你的參與！")
         return
 
     if command in {"進度", "目前進度", "progress"}:
@@ -162,13 +174,25 @@ async def handle_event(event: dict[str, Any]) -> None:
             await line_client.start_loading(user_id)
         try:
             image, mime_type = await line_client.get_content(message_id)
-            accepted = await gemini_client.check_image(image, mime_type, step.photo_check)
+            matched_category: str | None = None
+            if step.photo_categories:
+                references = []
+                for reference_name in step.photo_references:
+                    reference_path = Path(__file__).resolve().parent.parent / "assets" / reference_name
+                    references.append((reference_path.read_bytes(), "image/jpeg"))
+                matched_category = await gemini_client.classify_image(
+                    image, mime_type, step.photo_check, step.photo_categories, references
+                )
+                accepted = matched_category is not None
+            else:
+                accepted = await gemini_client.check_image(image, mime_type, step.photo_check)
             media_directory = Path(settings.media_path)
             media_directory.mkdir(parents=True, exist_ok=True)
             media_path = media_directory / f"{message_id}"
             media_path.write_bytes(image)
-            store.add_photo_submission(submission_id, message_id, str(media_path), "accepted" if accepted else "rejected")
-            store.finish_submission(submission_id, "accepted" if accepted else "rejected")
+            result = matched_category or ("accepted" if accepted else "rejected")
+            store.add_photo_submission(submission_id, message_id, str(media_path), result)
+            store.finish_submission(submission_id, result if accepted else "rejected")
         except Exception:
             store.finish_submission(submission_id, "error")
             logger.exception("Photo verification failed for user %s", user_id)
@@ -178,11 +202,31 @@ async def handle_event(event: dict[str, Any]) -> None:
             )
             return
         if accepted:
-            await advance_player(store, user_id, reply_token, step.success_message)
+            if step.photo_categories:
+                completed_categories = store.photo_categories(
+                    user_id, store.get_step_index(user_id)
+                )
+                remaining = [
+                    category
+                    for category in step.photo_categories
+                    if category not in completed_categories
+                ]
+                if remaining:
+                    await send_reply(
+                        store,
+                        reply_token,
+                        user_id,
+                        "收到，還需要："
+                        f"{'、'.join(PHOTO_CATEGORY_LABELS.get(category, category) for category in remaining)}。",
+                    )
+                else:
+                    await advance_player(store, user_id, reply_token, step.success_message)
+            else:
+                await advance_player(store, user_id, reply_token, step.success_message)
         else:
             await send_reply(
                 store, reply_token, user_id,
-                ["I could not verify that photo. Try again.", *message_list(step.instructions)],
+                ["我無法確認這張照片，請再試一次。", *message_list(step.instructions)],
             )
         return
 
