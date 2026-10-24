@@ -100,7 +100,7 @@ def test_storyline_has_all_required_challenges() -> None:
 
 
 def test_photo_guides_and_chapter_seven_references_are_configured() -> None:
-    assert GAME_STEPS[6].instructions[-1]["originalContentUrl"].endswith("/Ch5_Photo.jpg")
+    assert GAME_STEPS[6].instructions[1]["originalContentUrl"].endswith("/Ch5_Photo.jpg")
     chapter_seven = GAME_STEPS[8]
     assert chapter_seven.instructions[-1]["originalContentUrl"].endswith("/Ch7_Photo.jpg")
     assert chapter_seven.photo_references == (
@@ -126,7 +126,7 @@ def test_final_photo_success_message_includes_the_epilogue() -> None:
     assert "終章" not in "\n".join(success_messages)
     assert success_messages[0].endswith("勾玉閉上了眼。")
     assert "旅程結束了，但故事還沒有" in success_messages[1]
-    assert success_messages[1].startswith("旁白：爸爸媽媽站在勾玉面前")
+    assert success_messages[1].startswith("爸爸媽媽站在勾玉面前")
     assert success_messages[1].endswith("讓三峽的藍，繼續被記得。")
 
 
@@ -159,6 +159,48 @@ def test_player_messages_exclude_facilitator_only_lines() -> None:
         for message in player_messages
         for line in message.splitlines()
     )
+
+
+def test_player_messages_do_not_use_narrator_label() -> None:
+    player_messages = [
+        message
+        for step in GAME_STEPS
+        for content in (step.instructions, step.success_message)
+        for message in message_list(content)
+        if isinstance(message, str)
+    ]
+
+    assert all("旁白" not in message for message in player_messages)
+
+
+def test_multiple_choice_challenges_include_quick_replies() -> None:
+    challenge = main.step_messages(GAME_STEPS[4])[-1]
+
+    assert challenge["type"] == "text"
+    assert [
+        item["action"]["text"] for item in challenge["quickReply"]["items"]
+    ] == ["A", "B", "C", "D"]
+
+
+def test_chapter_five_quick_replies_are_on_the_final_message() -> None:
+    messages = main.step_messages(GAME_STEPS[6])
+
+    assert messages[-1]["type"] == "text"
+    assert [
+        item["action"]["text"] for item in messages[-1]["quickReply"]["items"]
+    ] == ["A", "B"]
+
+
+def test_first_challenge_requests_current_location() -> None:
+    step = GAME_STEPS[0]
+    challenge = main.step_messages(step)[-1]
+
+    assert step.kind == "location"
+    assert step.latitude == pytest.approx(24.93317)
+    assert step.longitude == pytest.approx(121.36872)
+    assert challenge["quickReply"]["items"] == [
+        {"type": "action", "action": {"type": "location", "label": "分享目前位置"}}
+    ]
 
 
 def test_each_step_uses_its_own_challenge_order() -> None:
@@ -285,6 +327,22 @@ async def test_failed_success_reply_still_advances_player(tmp_path, monkeypatch)
     await main.advance_player(store, "user-id", "reply-token", "Success")
 
     assert store.get_step_index("user-id") == 1
+
+
+async def test_success_reply_starts_with_correct_answer_message(tmp_path, monkeypatch) -> None:
+    store = UserStore(str(tmp_path / "users.csv"))
+    store.add_user("user-id")
+    replies = []
+
+    async def capture_reply(reply_token, message):
+        replies.append(message)
+
+    monkeypatch.setattr(main.line_client, "reply", capture_reply)
+
+    await main.advance_player(store, "user-id", "reply-token", "Story continues")
+
+    assert replies[0][0] == "沒錯！正確答案！"
+    assert replies[0][1] == "Story continues"
 
 
 async def test_gemini_image_check_requires_clear_subject() -> None:

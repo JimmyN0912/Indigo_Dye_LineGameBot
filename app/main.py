@@ -11,7 +11,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 
 from .config import Settings
-from .game import Message, answer_is_correct, current_step, distance_meters, message_list
+from .game import GameStep, Message, answer_is_correct, current_step, distance_meters, message_list
 from .integrations import GeminiClient, LineClient, UserStore
 
 logging.basicConfig(level=logging.INFO)
@@ -58,6 +58,33 @@ async def send_reply(
         await line_client.reply(reply_token, message)
     except httpx.HTTPStatusError:
         logger.exception("Could not send LINE reply for user %s", user_id)
+
+
+def step_messages(step: GameStep) -> list[Message]:
+    messages = message_list(step.instructions)
+    if not step.quick_reply_options and not step.quick_reply_location:
+        return messages
+    challenge_index = next(
+        index for index in range(len(messages) - 1, -1, -1)
+        if isinstance(messages[index], str)
+    )
+    challenge = messages[challenge_index]
+    quick_reply_items = [
+        {"type": "action", "action": {"type": "message", "label": option, "text": option}}
+        for option in step.quick_reply_options
+    ]
+    if step.quick_reply_location:
+        quick_reply_items.append(
+            {"type": "action", "action": {"type": "location", "label": "分享目前位置"}}
+        )
+    messages[challenge_index] = {
+        "type": "text",
+        "text": challenge,
+        "quickReply": {
+            "items": quick_reply_items
+        },
+    }
+    return messages
 
 
 def verify_signature(body: bytes, signature: str | None) -> bool:
@@ -109,7 +136,7 @@ async def handle_event(event: dict[str, Any]) -> None:
         step = current_step(0)
         await send_reply(
             store, reply_token, user_id,
-            message_list(step.instructions) if step else "The adventure is not configured yet.",
+            step_messages(step) if step else "The adventure is not configured yet.",
         )
         return
 
@@ -121,7 +148,7 @@ async def handle_event(event: dict[str, Any]) -> None:
         step = current_step(0)
         await send_reply(
             store, reply_token, user_id,
-            ["新的旅程開始了。", *(message_list(step.instructions) if step else [])],
+            ["新的旅程開始了。", *(step_messages(step) if step else [])],
         )
         return
 
@@ -141,7 +168,7 @@ async def handle_event(event: dict[str, Any]) -> None:
         submission_id = store.start_submission(user_id, store.get_step_index(user_id), event.get("webhookEventId"), message_type)
         if not answer_is_correct(step, message.get("text", "")):
             store.finish_submission(submission_id, "incorrect")
-            await send_reply(store, reply_token, user_id, ["Not quite. Try again.", *message_list(step.instructions)])
+            await send_reply(store, reply_token, user_id, "不太對喔！再想想看！")
             return
         store.finish_submission(submission_id, "accepted")
         await advance_player(store, user_id, reply_token, step.success_message)
@@ -198,7 +225,7 @@ async def handle_event(event: dict[str, Any]) -> None:
             logger.exception("Photo verification failed for user %s", user_id)
             await send_reply(
                 store, reply_token, user_id,
-                ["照片檢查暫時失敗，請稍後再試。", *message_list(step.instructions)],
+                "照片檢查暫時失敗，請稍後再試。",
             )
             return
         if accepted:
@@ -226,13 +253,13 @@ async def handle_event(event: dict[str, Any]) -> None:
         else:
             await send_reply(
                 store, reply_token, user_id,
-                ["我無法確認這張照片，請再試一次。", *message_list(step.instructions)],
+                "我無法確認這張照片，請再試一次。",
             )
         return
 
     await send_reply(
         store, reply_token, user_id,
-        [f"This turn needs a {step.kind} response.", *message_list(step.instructions)],
+        [f"This turn needs a {step.kind} response.", *step_messages(step)],
     )
 
 
@@ -241,9 +268,9 @@ async def advance_player(
 ) -> None:
     next_index = store.get_step_index(user_id) + 1
     next_step = current_step(next_index)
-    message = message_list(success_message)
+    message = ["沒錯！正確答案！", *message_list(success_message)]
     if next_step:
-        message.extend(message_list(next_step.instructions))
+        message.extend(step_messages(next_step))
     store.set_step_index(user_id, next_index)
     if next_step is None:
         store.mark_completed(user_id)

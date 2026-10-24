@@ -22,8 +22,29 @@ class VideoMessage(TypedDict):
     trackingId: NotRequired[str]
 
 
+class QuickReplyAction(TypedDict):
+    type: Literal["message", "location"]
+    label: str
+    text: NotRequired[str]
+
+
+class QuickReplyItem(TypedDict):
+    type: Literal["action"]
+    action: QuickReplyAction
+
+
+class QuickReply(TypedDict):
+    items: list[QuickReplyItem]
+
+
+class TextMessage(TypedDict):
+    type: Literal["text"]
+    text: str
+    quickReply: NotRequired[QuickReply]
+
+
 MediaMessage = ImageMessage | VideoMessage
-Message = str | MediaMessage
+Message = str | TextMessage | MediaMessage
 MessageContent = Message | list[Message]
 
 
@@ -43,6 +64,8 @@ class GameStep:
     photo_check: str = ""
     photo_references: tuple[str, ...] = ()
     photo_categories: tuple[str, ...] = ()
+    quick_reply_options: tuple[str, ...] = ()
+    quick_reply_location: bool = False
     success_message: MessageContent = ""
 
 
@@ -124,8 +147,11 @@ GAME_STEPS: list[GameStep] = [
             _story_narrative("前情提要", "謎題｜尋找另一口古井"),
             _story_challenge("謎題｜尋找另一口古井", "第一章"),
         ],
-        kind="text",
+        kind="location",
         answer="民權街84巷,民權街84巷的古井,古井",
+        latitude=24.93317,
+        longitude=121.36872,
+        quick_reply_location=True,
         success_message="",
     ),
     GameStep(
@@ -155,11 +181,11 @@ GAME_STEPS: list[GameStep] = [
         chapter=3,
         instructions=[
             _story_narrative("第三章", "謎題"),
-            _story_challenge("第三章", "旁白：完成任務後"),
+            _story_challenge("第三章", "完成任務後"),
         ],
         kind="photo",
         photo_check="The photo must clearly show a blue flag or textile with a yellow tiger emblem.",
-        success_message=_story_between("旁白：完成任務後", "第四章"),
+        success_message=_story_between("完成任務後", "第四章"),
     ),
     GameStep(
         title="庄役場",
@@ -170,6 +196,7 @@ GAME_STEPS: list[GameStep] = [
         ],
         kind="text",
         answer="B,B.辦理地方行政事務,辦理地方行政事務",
+        quick_reply_options=("A", "B", "C", "D"),
         success_message=_story_after("正確答案：B. 辦理地方行政事務", "謎題｜消失的染坊文字"),
     ),
     GameStep(
@@ -187,11 +214,12 @@ GAME_STEPS: list[GameStep] = [
         chapter=5,
         instructions=[
             _story_narrative("第五章", "謎題"),
-            _story_challenge("第五章", "答案：A(大菁)"),
             _asset_message("Ch5_Photo.jpg"),
+            _story_challenge("第五章", "答案：A(大菁)"),
         ],
         kind="text",
         answer="A,A.大菁,大菁",
+        quick_reply_options=("A", "B"),
         success_message=_story_after("答案：A(大菁)", "第六章"),
     ),
     GameStep(
