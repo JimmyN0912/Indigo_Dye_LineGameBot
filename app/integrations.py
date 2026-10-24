@@ -258,7 +258,7 @@ class LineClient:
             raise
 
     @staticmethod
-    def _format_message(message: Message) -> dict[str, str]:
+    def _format_message(message: Message) -> dict[str, object]:
         if isinstance(message, str):
             return {"type": "text", "text": message[:5000]}
         return dict(message)

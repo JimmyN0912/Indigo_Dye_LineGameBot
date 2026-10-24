@@ -19,6 +19,11 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="LINE Photo Bot")
 app.mount(
+    "/assets/voice",
+    StaticFiles(directory=Path(__file__).resolve().parent.parent / "voice"),
+    name="asset-voice",
+)
+app.mount(
     "/assets",
     StaticFiles(directory=Path(__file__).resolve().parent.parent / "assets"),
     name="assets",
@@ -101,15 +106,44 @@ async def send_reply(
 
 
 def step_messages(step: GameStep) -> list[Message]:
-    messages = message_list(step.instructions)
+    source_messages = message_list(step.instructions)
+    challenge_index = next(
+        index
+        for index in range(len(source_messages) - 1, -1, -1)
+        if isinstance(source_messages[index], str)
+    )
+    challenge = source_messages[challenge_index]
+    storyline = [
+        message
+        for index, message in enumerate(source_messages)
+        if isinstance(message, str) and index != challenge_index
+    ]
+    audio_messages = [
+        message
+        for message in source_messages
+        if isinstance(message, dict) and message["type"] == "audio"
+    ]
+    other_messages = [
+        message
+        for index, message in enumerate(source_messages)
+        if index != challenge_index
+        and not (isinstance(message, str) or (
+            isinstance(message, dict) and message["type"] == "audio"
+        ))
+    ]
+    messages = (
+        ([("\n\n".join(storyline))] if storyline else [])
+        + other_messages
+        + audio_messages
+        + [challenge]
+    )
     if not step.quick_reply_options and not step.quick_reply_location:
         return messages
 
-    challenge_index = next(
-        index for index in range(len(messages) - 1, -1, -1)
-        if isinstance(messages[index], str)
-    )
+    challenge_index = len(messages) - 1
     challenge = messages[challenge_index]
+    if not isinstance(challenge, str):
+        raise ValueError(f"Challenge text missing for step {step.title!r}")
     quick_reply_items = [
         {"type": "action", "action": {"type": "message", "label": option, "text": option}}
         for option in step.quick_reply_options

@@ -48,12 +48,21 @@ This service runs the Sanxia blue-dye time-travel adventure in LINE:
          "You found it!",
          {"type": "image", "originalContentUrl": "https://example.com/photo.jpg", "previewImageUrl": "https://example.com/preview.jpg"},
          {"type": "video", "originalContentUrl": "https://example.com/video.mp4", "previewImageUrl": "https://example.com/video-preview.jpg", "trackingId": "adventure-video-1"},
+         {"type": "audio", "originalContentUrl": "https://example.com/clue.m4a", "duration": 12345},
       ],
       ```
 
-      The guide photos are served from `/assets`. Set `ASSET_BASE_URL` to the public HTTPS URL ending in `/assets` before starting the bot (for example, `https://YOUR_PUBLIC_HOST/assets`).
+      Audio messages use `duration` in milliseconds. Audio files can be added to
+      Audio files placed in `voice/` are served from `/assets/voice` and can be
+      referenced with `audio_asset_message("clue.m4a", 12345)`. Set
+      `AUDIO_BASE_URL` to the public HTTPS URL ending in `/assets/voice` before
+      starting the bot (for example, `https://YOUR_PUBLIC_HOST/assets/voice`).
+      The guide photos continue to use `ASSET_BASE_URL` and `/assets`.
 
-      LINE allows up to 5 messages per reply. Both media types need `originalContentUrl` and `previewImageUrl`; video messages may also include `trackingId`.
+      LINE allows up to 5 messages per reply. Image and video messages need
+      `originalContentUrl` and `previewImageUrl`; audio messages need
+      `originalContentUrl` and `duration`. Video messages may also include
+      `trackingId`. The audio URL must be publicly reachable over HTTPS.
 
       `success_message` is sent after a correct response, followed by the next step's instructions. Incoming webhook events, outgoing replies, challenge submissions, and downloaded photo checks are retained in the SQLite database.
 

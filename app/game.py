@@ -22,6 +22,12 @@ class VideoMessage(TypedDict):
     trackingId: NotRequired[str]
 
 
+class AudioMessage(TypedDict):
+    type: Literal["audio"]
+    originalContentUrl: str
+    duration: int
+
+
 class QuickReplyAction(TypedDict):
     type: Literal["message", "location"]
     label: str
@@ -43,7 +49,7 @@ class TextMessage(TypedDict):
     quickReply: NotRequired[QuickReply]
 
 
-MediaMessage = ImageMessage | VideoMessage
+MediaMessage = ImageMessage | VideoMessage | AudioMessage
 Message = str | TextMessage | MediaMessage
 MessageContent = Message | list[Message]
 
@@ -81,8 +87,24 @@ def _asset_message(filename: str) -> ImageMessage:
     return {"type": "image", "originalContentUrl": url, "previewImageUrl": url}
 
 
+def audio_asset_message(filename: str, duration_ms: int) -> AudioMessage:
+    """Build a LINE audio message for an audio file hosted in the voice directory."""
+    if duration_ms <= 0:
+        raise ValueError("Audio duration must be greater than zero milliseconds")
+    base_url = os.getenv("AUDIO_BASE_URL", "http://localhost:8000/assets/voice").rstrip("/")
+    return {
+        "type": "audio",
+        "originalContentUrl": f"{base_url}/{filename}",
+        "duration": duration_ms,
+    }
+
+
 def map_message() -> ImageMessage:
     return _asset_message("map.jpg")
+
+
+def _audio_message(filename: str, duration_ms: int) -> AudioMessage:
+    return audio_asset_message(filename, duration_ms)
 
 
 def _story_between(start: str, end: str) -> str:
@@ -148,6 +170,7 @@ GAME_STEPS: list[GameStep] = [
         title="尋找另一口古井",
         chapter=0,
         instructions=[
+            _audio_message("Ch0.mp3", 81000),
             _story_narrative("前情提要", "謎題｜尋找另一口古井"),
             _story_challenge("謎題｜尋找另一口古井", "第一章"),
         ],
@@ -163,28 +186,35 @@ GAME_STEPS: list[GameStep] = [
         chapter=1,
         instructions=[
             _story_narrative("第一章", "謎題"),
+            _audio_message("Ch1-1.mp3", 44000),
             _story_challenge("第一章", "答案：藍染"),
         ],
         kind="text",
         answer="藍染,蓝染",
-        success_message=_story_between("勾玉：「原來……", "第二章"),
+        success_message=[
+            _story_between("勾玉：「原來……", "第二章"),
+        ],
     ),
     GameStep(
         title="藍染製作流程",
         chapter=2,
         instructions=[
             _story_narrative("第二章", "謎題"),
+            _audio_message("Ch2.mp3", 121000),
             _story_challenge("第二章", "答案：採收"),
         ],
         kind="text",
         answer="青出於藍",
-        success_message=_story_after("關鍵字：青出於染", "第三章"),
+        success_message=[
+            _story_after("關鍵字：青出於染", "第三章"),
+        ],
     ),
     GameStep(
         title="藍地黃虎旗",
         chapter=3,
         instructions=[
             _story_narrative("第三章", "謎題"),
+            _audio_message("Ch3.mp3", 91000),
             _story_challenge("第三章", "完成任務後"),
         ],
         kind="photo",
@@ -195,6 +225,7 @@ GAME_STEPS: list[GameStep] = [
         title="庄役場",
         chapter=4,
         instructions=[
+            _audio_message("Ch4-1.mp3", 38000),
             _story_narrative("第四章", "謎題"),
             _story_challenge("第四章", "正確答案：B"),
         ],
@@ -207,18 +238,20 @@ GAME_STEPS: list[GameStep] = [
         title="消失的染坊文字",
         chapter=4,
         instructions=[
+            _audio_message("Ch4-2.mp3", 73000),
             _story_challenge("謎題｜消失的染坊文字", "答案：外洋"),
         ],
         kind="text",
         answer="外洋、重資",
-        success_message=_story_after("答案：外洋、重資", "第五章"),
+        success_message=(),
     ),
     GameStep(
         title="找回失去的藍",
         chapter=5,
         instructions=[
-            _story_narrative("第五章", "謎題"),
+            _story_narrative("答案：外洋、重資", "謎題"),
             _asset_message("Ch5_Photo.jpg"),
+            _audio_message("Ch5-1.mp3", 117000),
             _story_challenge("第五章", "答案：A(大菁)"),
         ],
         kind="text",
@@ -230,28 +263,31 @@ GAME_STEPS: list[GameStep] = [
         title="虎姑婆",
         chapter=6,
         instructions=[
+            _audio_message("Ch6-1.mp3", 70000),
             _story_narrative("第六章", "謎題"),
             _story_challenge("第六章", "答案:1905"),
         ],
         kind="text",
         answer="1905",
-        success_message=_story_after("答案:1905", "第七章"),
+        success_message=(),
     ),
     GameStep(
         title="祖師廟的印記",
         chapter=7,
         instructions=[
-            _story_narrative("第七章", "謎題"),
-            _story_challenge("第七章", "答案:照片x3"),
+            _audio_message("Ch7.mp3", 114000),
+            _story_narrative("答案:1905", "謎題"),
             _asset_message("Ch7_Photo.jpg"),
+            _story_challenge("第七章", "答案:照片x3"),
         ],
         kind="photo",
         photo_check="The photo must clearly show one of the three required subjects at Sanxia Zushi Temple.",
         photo_references=("Ch7_Ref1.jpg", "Ch7_Ref2.jpg", "Ch7_Ref3.jpg"),
         photo_categories=("carved pillar", "bell", "temple exterior"),
-        success_message=_story_split_on_heading(
-            "答案:照片x3 (百鳥朝梅柱、鐘、祖師廟外觀)", "終章"
-        ),
+        success_message=[
+            *_story_split_on_heading("答案:照片x3 (百鳥朝梅柱、鐘、祖師廟外觀)", "終章"),
+            _audio_message("Ch8.mp3", 191000),
+        ],
     ),
 ]
 

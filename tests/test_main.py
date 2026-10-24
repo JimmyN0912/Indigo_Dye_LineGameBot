@@ -9,7 +9,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import main
-from app.game import GAME_STEPS, GameStep, answer_is_correct, distance_meters, map_message, message_list
+from app.game import (
+    GAME_STEPS,
+    GameStep,
+    answer_is_correct,
+    audio_asset_message,
+    distance_meters,
+    map_message,
+    message_list,
+)
 from app.integrations import LineClient, UserStore
 from app.setup_rich_menus import _postback_action
 
@@ -203,9 +211,19 @@ def test_storyline_has_all_required_challenges() -> None:
 
 
 def test_photo_guides_and_chapter_seven_references_are_configured() -> None:
-    assert GAME_STEPS[6].instructions[1]["originalContentUrl"].endswith("/Ch5_Photo.jpg")
+    chapter_five_images = [
+        message["originalContentUrl"]
+        for message in message_list(GAME_STEPS[6].instructions)
+        if isinstance(message, dict) and message["type"] == "image"
+    ]
+    assert chapter_five_images[0].endswith("/assets/Ch5_Photo.jpg")
     chapter_seven = GAME_STEPS[8]
-    assert chapter_seven.instructions[-1]["originalContentUrl"].endswith("/Ch7_Photo.jpg")
+    chapter_seven_images = [
+        message["originalContentUrl"]
+        for message in message_list(chapter_seven.instructions)
+        if isinstance(message, dict) and message["type"] == "image"
+    ]
+    assert chapter_seven_images[0].endswith("/assets/Ch7_Photo.jpg")
     assert chapter_seven.photo_references == (
         "Ch7_Ref1.jpg", "Ch7_Ref2.jpg", "Ch7_Ref3.jpg"
     )
@@ -224,17 +242,22 @@ def test_final_photo_challenge_has_traditional_chinese_labels() -> None:
 
 def test_final_photo_success_message_includes_the_epilogue() -> None:
     success_messages = message_list(GAME_STEPS[8].success_message)
-
-    assert len(success_messages) == 2
-    assert "終章" not in "\n".join(success_messages)
-    assert success_messages[0].endswith("勾玉閉上了眼。")
-    assert "旅程結束了，但故事還沒有" in success_messages[1]
-    assert success_messages[1].startswith("爸爸媽媽站在勾玉面前")
-    assert success_messages[1].endswith("讓三峽的藍，繼續被記得。")
+    assert len(success_messages) == 3
+    story_messages = [message for message in success_messages if isinstance(message, str)]
+    assert "終章" not in "\n".join(story_messages)
+    assert story_messages[0].endswith("勾玉閉上了眼。")
+    assert "旅程結束了，但故事還沒有" in story_messages[1]
+    assert story_messages[1].startswith("爸爸媽媽站在勾玉面前")
+    assert story_messages[1].endswith("讓三峽的藍，繼續被記得。")
+    assert success_messages[-1]["type"] == "audio"
 
 
 def test_first_turn_separates_story_from_exact_challenge() -> None:
-    messages = message_list(GAME_STEPS[0].instructions)
+    messages = [
+        message
+        for message in message_list(GAME_STEPS[0].instructions)
+        if isinstance(message, str)
+    ]
 
     assert len(messages) == 2
     assert not messages[0].startswith("前情提要")
@@ -289,9 +312,40 @@ def test_chapter_five_quick_replies_are_on_the_final_message() -> None:
     messages = main.step_messages(GAME_STEPS[6])
 
     assert messages[-1]["type"] == "text"
+    assert messages[-2]["type"] == "audio"
     assert [
         item["action"]["text"] for item in messages[-1]["quickReply"]["items"]
     ] == ["A", "B"]
+
+
+def test_chapter_two_second_audio_plays_after_answer() -> None:
+    messages = main.step_messages(GAME_STEPS[2])
+
+    assert [
+        message["type"] if isinstance(message, dict) else "text"
+        for message in messages
+    ] == ["text", "audio", "text"]
+    assert messages[1]["originalContentUrl"].endswith("/Ch2-1.mp3")
+
+    success_messages = message_list(GAME_STEPS[2].success_message)
+    assert success_messages[-1]["type"] == "audio"
+    assert success_messages[-1]["originalContentUrl"].endswith("/Ch2-2.mp3")
+    assert "第三關" in next(
+        message for message in reversed(messages) if isinstance(message, str)
+    )
+
+
+def test_each_chapter_sends_one_storyline_message() -> None:
+    for step in GAME_STEPS:
+        storyline_messages = [
+            message
+            for message in main.step_messages(step)
+            if isinstance(message, str)
+        ]
+
+        assert len(storyline_messages) <= 2
+        if len(storyline_messages) == 2:
+            assert storyline_messages[0] != storyline_messages[1]
 
 
 def test_first_challenge_requests_current_location() -> None:
@@ -382,7 +436,48 @@ def test_map_message_uses_the_map_asset(monkeypatch) -> None:
     }
 
 
-async def test_line_client_sends_image_and_video_messages() -> None:
+def test_audio_asset_message_uses_asset_url_and_duration(monkeypatch) -> None:
+    monkeypatch.setenv("AUDIO_BASE_URL", "https://example.com/assets/voice")
+
+    assert audio_asset_message("clue.m4a", 12_345) == {
+        "type": "audio",
+        "originalContentUrl": "https://example.com/assets/voice/clue.m4a",
+        "duration": 12_345,
+    }
+
+
+def test_audio_asset_message_rejects_non_positive_duration() -> None:
+    with pytest.raises(ValueError, match="greater than zero"):
+        audio_asset_message("clue.m4a", 0)
+
+
+def test_challenge_audio_is_configured_in_order() -> None:
+    audio_urls = [
+        message["originalContentUrl"]
+        for step in GAME_STEPS
+        for content in (step.instructions, step.success_message)
+        for message in message_list(content)
+        if isinstance(message, dict) and message["type"] == "audio"
+    ]
+
+    assert [url.rsplit("/", 1)[-1] for url in audio_urls] == [
+        "Ch0.mp3",
+        "Ch1-1.mp3",
+        "Ch1-2.mp3",
+        "Ch2-1.mp3",
+        "Ch2-2.mp3",
+        "Ch3-1.mp3",
+        "Ch3-2.mp3",
+        "Ch4-1.mp3",
+        "Ch4-2.mp3",
+        "Ch5-1.mp3",
+        "Ch6-1.mp3",
+        "Ch7.mp3",
+        "Ch8.mp3",
+    ]
+
+
+async def test_line_client_sends_image_video_and_audio_messages() -> None:
     requests: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -396,6 +491,7 @@ async def test_line_client_sends_image_and_video_messages() -> None:
         [
             {"type": "image", "originalContentUrl": "https://example.com/photo.jpg", "previewImageUrl": "https://example.com/preview.jpg"},
             {"type": "video", "originalContentUrl": "https://example.com/video.mp4", "previewImageUrl": "https://example.com/video-preview.jpg", "trackingId": "video-1"},
+            {"type": "audio", "originalContentUrl": "https://example.com/clue.m4a", "duration": 12345},
         ],
     )
     await http_client.aclose()
@@ -405,6 +501,7 @@ async def test_line_client_sends_image_and_video_messages() -> None:
     assert payload["messages"] == [
         {"type": "image", "originalContentUrl": "https://example.com/photo.jpg", "previewImageUrl": "https://example.com/preview.jpg"},
         {"type": "video", "originalContentUrl": "https://example.com/video.mp4", "previewImageUrl": "https://example.com/video-preview.jpg", "trackingId": "video-1"},
+        {"type": "audio", "originalContentUrl": "https://example.com/clue.m4a", "duration": 12345},
     ]
 
 
