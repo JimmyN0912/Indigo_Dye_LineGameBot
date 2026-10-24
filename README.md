@@ -4,7 +4,7 @@ This service runs the Sanxia blue-dye time-travel adventure in LINE:
 
 - verifies LINE webhook signatures;
 - looks up the sender in a local SQLite database;
-- registers a new player and sends the first challenge;
+- registers a new player and sends the three-message welcome sequence;
 - checks the story's text answers and verifies landmark photos with Gemini;
 - stores each player's current turn and an audit trail of LINE traffic locally.
 
@@ -57,7 +57,100 @@ This service runs the Sanxia blue-dye time-travel adventure in LINE:
 
       `success_message` is sent after a correct response, followed by the next step's instructions. Incoming webhook events, outgoing replies, challenge submissions, and downloaded photo checks are retained in the SQLite database.
 
-   Players can send `開始` or `重來` to restart, and `進度` to see the current challenge. Text answers ignore spaces and common Chinese or English punctuation.
+   On first contact, the bot greets the player by their LINE display name,
+   sends the story introduction and game instructions, and offers `開始吧!` as
+   a quick reply. Selecting it starts the first challenge. Players can also
+   send `開始` or `重來` to restart, `進度` to see the current challenge, and
+   `地圖` or `三峽觀光地圖` to receive the tourism map. Text answers ignore
+   spaces and common Chinese or English punctuation.
+
+   When a player follows the Official Account again after unblocking it, LINE
+   sends a `follow` event. The bot responds with the same welcome sequence
+   without resetting the player's existing progress.
+
+   The main Rich Menu uses a two-tab top bar and six feature actions:
+
+   | Label | Action | Value |
+   | --- | --- | --- |
+   | 主選單 | Rich Menu switch | `main` alias |
+   | 科普資料 | Rich Menu switch | `knowledge` alias |
+   | 輸入答案 | Postback | `input_answer` + `openKeyboard` |
+   | 地圖 | Postback | `map` |
+   | 目前任務 | Postback | `current_challenge` |
+   | 遊戲說明 | Postback | `game_instructions` |
+   | 提示 | Postback | `hint` |
+   | 重新開始 | Postback | `restart` |
+
+   Configure the Rich Menu image and actions in the LINE Official Account
+   Manager (or through the LINE Messaging API). The URI action opens directly
+   in LINE and does not send a webhook event to this bot.
+
+   To switch menus through the bot, configure two Rich Menu IDs:
+
+   ```dotenv
+   MAIN_RICH_MENU_ID=richmenu-main-id
+   KNOWLEDGE_RICH_MENU_ID=richmenu-knowledge-id
+   ```
+
+   The `科普資料` and `返回主選單` Message actions require these IDs to be
+   configured; otherwise the bot reports that the corresponding menu is not
+   available.
+
+   Both menus use a 220-pixel top tab bar. The main menu's `科普資料` tab
+   switches to the `knowledge` alias, and the knowledge menu's `主選單` tab
+   switches back to the `main` alias. The main menu image must therefore be
+   2500 × 1686 pixels, with the six feature areas below the tab bar.
+   The six feature areas use silent postbacks, so their action data is not
+   displayed as a user message. The `輸入答案` postback additionally uses
+   `inputOption: "openKeyboard"`; the bot ignores that postback so no bot
+   message is sent, while the user can immediately type an answer. The map
+   postback replies with the image only.
+   The knowledge menu can use six URI actions:
+
+   | Label | URI |
+   | --- | --- |
+   | 三峽藍染 | `https://indigo-dye.jimmyn.idv.tw/#topic/sanxia` |
+   | 原住民族傳統染色 | `https://indigo-dye.jimmyn.idv.tw/#topic/indigenous` |
+   | 新埔柿染 | `https://indigo-dye.jimmyn.idv.tw/#topic/persimmon` |
+   | 六堆客家藍衫 | `https://indigo-dye.jimmyn.idv.tw/#topic/hakka` |
+   | 太平藍 | `https://indigo-dye.jimmyn.idv.tw/#topic/taiping` |
+   | 菁寮小菁藍染 | `https://indigo-dye.jimmyn.idv.tw/#topic/jingliao` |
+
+   The knowledge menu reserves a 220-pixel-wide top tab strip for switching
+   back to the `main` alias. The six topic links occupy the two rows below it.
+   The knowledge-menu image must visibly include this top tab strip so users
+   can switch back by tapping it.
+
+   To create and upload the two Rich Menus from the checked-in images, set
+   `LINE_CHANNEL_ACCESS_TOKEN` and run:
+
+   ```bash
+   python -m app.setup_rich_menus
+   ```
+
+   The command creates both menus, uploads `assets/main-richmenu1.jpg` and
+   `assets/richmenu2.jpg`, creates or updates the `main` and `knowledge`
+   aliases, and sets the first menu as the default. Copy the printed menu IDs into
+   `MAIN_RICH_MENU_ID` and `KNOWLEDGE_RICH_MENU_ID`. Use
+   `--skip-default` if the main menu should not be linked to all users yet.
+   Each Rich Menu image must be JPEG or PNG, use the dimensions declared in its
+   menu, and be no larger than 1,000,000 bytes. The setup command checks this
+   before making any API requests.
+
+   To replace the menus currently configured in `MAIN_RICH_MENU_ID` and
+   `KNOWLEDGE_RICH_MENU_ID`, create and activate the new menus first and then
+   delete the old ones with:
+
+   ```bash
+   python -m app.setup_rich_menus --replace-old
+   ```
+
+   Replacement is intentionally opt-in. With `--replace-old`, the command uses
+   fresh alias IDs for the new tab pair, updates the default menu, and then
+   deletes the old IDs. This avoids conflicts with aliases that LINE may still
+   retain from an earlier setup. Copy the printed menu IDs into the environment
+   after the command succeeds. Do not use `--skip-default` with
+   `--replace-old`; otherwise the old default menu may remain active for users.
 
    To reset every player's current progress while keeping the audit history, run:
 
@@ -72,5 +165,17 @@ This service runs the Sanxia blue-dye time-travel adventure in LINE:
    ```
 
 Set the LINE Developers webhook URL to `https://YOUR_PUBLIC_HOST/webhook`. LINE requires HTTPS and sends the `x-line-signature` header, which this service validates.
+
+## Group chats
+
+The bot supports LINE group chats. In the LINE Developers Console, enable
+**Messaging API > Channel settings > Allow bot to join group chats**. After
+adding the bot to a group, LINE sends a `join` event and the bot posts a short
+welcome message. Each group member's game progress is stored separately by
+their LINE user ID, so members can play independently in the same group.
+
+If the bot still leaves immediately after this setting is enabled, check the
+LINE webhook delivery history and the Official Account's chat/group settings.
+This application does not call LINE's leave endpoint.
 
 Run tests with `python -m pytest` while the `.venv` is active.

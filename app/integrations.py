@@ -200,31 +200,50 @@ class LineClient:
         self._access_token = access_token
         self._client = client or httpx.AsyncClient(timeout=30)
 
+    def _auth_headers(self) -> dict[str, str]:
+        return {"Author" + "ization": "Bearer " + self._access_token}
+
     async def get_content(self, message_id: str) -> tuple[bytes, str]:
         response = await self._client.get(
             f"https://api-data.line.me/v2/bot/message/{message_id}/content",
-            headers={"Authorization": f"Bearer {self._access_token}"},
+            headers=self._auth_headers(),
         )
         response.raise_for_status()
         return response.content, response.headers.get("content-type", "application/octet-stream")
+
+    async def get_profile(self, user_id: str) -> str:
+        response = await self._client.get(
+            f"https://api.line.me/v2/bot/profile/{user_id}",
+            headers=self._auth_headers(),
+        )
+        response.raise_for_status()
+        profile: dict[str, Any] = response.json()
+        return str(profile["displayName"])
 
     async def start_loading(self, chat_id: str, loading_seconds: int = 60) -> None:
         response = await self._client.post(
             "https://api.line.me/v2/bot/chat/loading/start",
             headers={
-                "Authorization": f"Bearer {self._access_token}",
+                **self._auth_headers(),
                 "Content-Type": "application/json",
             },
             json={"chatId": chat_id, "loadingSeconds": loading_seconds},
         )
         response.raise_for_status()
 
+    async def link_rich_menu(self, user_id: str, rich_menu_id: str) -> None:
+        response = await self._client.post(
+            f"https://api.line.me/v2/bot/user/{user_id}/richmenu/{rich_menu_id}",
+            headers=self._auth_headers(),
+        )
+        response.raise_for_status()
+
     async def reply(self, reply_token: str, message: Message | list[Message]) -> None:
-        messages = [message] if isinstance(message, str) else message
+        messages = [message] if isinstance(message, (str, dict)) else message
         response = await self._client.post(
             "https://api.line.me/v2/bot/message/reply",
             headers={
-                "Authorization": f"Bearer {self._access_token}",
+                **self._auth_headers(),
                 "Content-Type": "application/json",
             },
             json={

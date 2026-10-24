@@ -60,7 +60,7 @@ class GameStep:
     hint: str = ""
     latitude: float | None = None
     longitude: float | None = None
-    radius_meters: float = 100
+    radius_meters: float = 15
     photo_check: str = ""
     photo_references: tuple[str, ...] = ()
     photo_categories: tuple[str, ...] = ()
@@ -79,6 +79,10 @@ def _asset_message(filename: str) -> ImageMessage:
     base_url = os.getenv("ASSET_BASE_URL", "http://localhost:8000/assets").rstrip("/")
     url = f"{base_url}/{filename}"
     return {"type": "image", "originalContentUrl": url, "previewImageUrl": url}
+
+
+def map_message() -> ImageMessage:
+    return _asset_message("map.jpg")
 
 
 def _story_between(start: str, end: str) -> str:

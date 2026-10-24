@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-Hant">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        <meta name="theme-color" content="#20394c">
+        <meta name="description" content="探索臺灣六種天然染織工藝，從植物與色彩科學，到地方故事與旅行。">
+        <title>島嶼染事｜臺灣天然染織圖誌</title>
+        <link rel="stylesheet" href="style.css">
+    </head>
+    <body>
+        <header>
+            <a class="brand" href="#">
+                <span class="mark">染</span>
+                島嶼染事<span class="brand-en">TAIWAN IN NATURAL COLOUR</span>
+            </a>
+            <a class="header-link" href="#collection">
+                探索六種染織 <span>↗</span>
+            </a>
+        </header>
+        <main id="app"></main>
+        <footer>
+            <a class="brand" href="#">島嶼染事</a>
+            <p>
+                從一株植物，讀懂一片土地。<br>
+                <small>
+                    臺灣天然染織科普圖誌 · 2026<br>照片出處列於各主題頁，著作權屬原作者。色票為螢幕示意。
+                </small>
+            </p>
+            <a href="#sources">資料與影像來源 ↗</a>
+        </footer>
+        <script src="data.js"></script>
+        <script src="app.js"></script>
+        <script>
+            (function() {
+                function c() {
+                    var b = a.contentDocument || (a.contentWindow && a.contentWindow.document);
+                    if (b) {
+                        var d = b.createElement('script');
+                        d.innerHTML = "window.__CF$cv$params={r:'a4f55629bd7cc4ed',t:'MTc5MjgwNjY4OA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";
+                        b.getElementsByTagName('head')[0].appendChild(d)
+                    }
+                }
+                if (document.body) {
+                    var a = document.createElement('iframe');
+                    a.height = 1;
+                    a.width = 1;
+                    a.style.position = 'absolute';
+                    a.style.top = 0;
+                    a.style.left = 0;
+                    a.style.border = 'none';
+                    a.style.visibility = 'hidden';
+                    document.body.appendChild(a);
+                    if ('loading' !== document.readyState)
+                        c();
+                    else if (window.addEventListener)
+                        document.addEventListener('DOMContentLoaded', c);
+                    else {
+                        var e = document.onreadystatechange || function() {}
+                        ;
+                        document.onreadystatechange = function(b) {
+                            e(b);
+                            'loading' !== document.readyState && (document.onreadystatechange = e,
+                            c())
+                        }
+                    }
+                }
+            }
+            )();
+        </script>
+    </body>
+</html>

@@ -23,6 +23,8 @@ class Settings:
     database_path: str = "bot.db"
     media_path: str = "media"
     asset_base_url: str = "http://localhost:8000/assets"
+    main_rich_menu_id: str = ""
+    knowledge_rich_menu_id: str = ""
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.5-flash-lite"
 
@@ -35,6 +37,8 @@ class Settings:
             database_path=os.getenv("DATABASE_PATH", "bot.db"),
             media_path=os.getenv("MEDIA_PATH", "media"),
             asset_base_url=os.getenv("ASSET_BASE_URL", "http://localhost:8000/assets"),
+            main_rich_menu_id=os.getenv("MAIN_RICH_MENU_ID", ""),
+            knowledge_rich_menu_id=os.getenv("KNOWLEDGE_RICH_MENU_ID", ""),
             gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
             gemini_model=os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite"),
         )

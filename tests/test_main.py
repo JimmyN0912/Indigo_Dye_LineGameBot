@@ -9,8 +9,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import main
-from app.game import GAME_STEPS, GameStep, answer_is_correct, distance_meters, message_list
+from app.game import GAME_STEPS, GameStep, answer_is_correct, distance_meters, map_message, message_list
 from app.integrations import LineClient, UserStore
+from app.setup_rich_menus import _postback_action
 
 
 def signature(body: bytes) -> str:
@@ -87,6 +88,108 @@ def test_text_answers_are_case_insensitive_and_support_alternatives() -> None:
 def test_commands_ignore_chat_punctuation() -> None:
     assert main.normalize_command("開始吧！") == "開始吧"
     assert main.normalize_command("  PROGRESS? ") == "progress"
+    assert main.normalize_command("地圖") in main.MAP_COMMANDS
+    assert main.normalize_command("重新開始") in main.RESTART_COMMANDS
+    assert main.normalize_command("科普資料") in main.KNOWLEDGE_MENU_COMMANDS
+    assert main.normalize_command("返回主選單") in main.MAIN_MENU_COMMANDS
+    assert main.normalize_command("輸入答案") in main.INPUT_COMMANDS
+    assert main.normalize_command("目前任務") in main.CURRENT_CHALLENGE_COMMANDS
+    assert main.normalize_command("遊戲說明") in main.INTRO_COMMANDS
+    assert main.normalize_command("提示") in main.HINT_COMMANDS
+
+
+def test_initial_instructions_are_available_for_rich_menu_replay() -> None:
+    assert "🎒 【出發前，請確認你的裝備】" in main.INITIAL_INSTRUCTIONS
+    assert "🕹️ 【遊戲怎麼玩？】" in main.INITIAL_INSTRUCTIONS
+    assert "輸入答案" in main.INITIAL_INSTRUCTIONS
+
+
+def test_welcome_messages_include_nickname_and_start_quick_reply() -> None:
+    messages = main.welcome_messages("小明")
+
+    assert messages[0].startswith("小明您好！")
+    assert "《三峽藍染實境解謎》" in messages[0]
+    assert messages[1] == main.INITIAL_INSTRUCTIONS
+    assert messages[2]["quickReply"]["items"] == [
+        {
+            "type": "action",
+            "action": {"type": "message", "label": "開始吧!", "text": "開始吧!"},
+        }
+    ]
+
+
+async def test_follow_event_sends_welcome_without_resetting_progress(tmp_path, monkeypatch) -> None:
+    store = UserStore(str(tmp_path / "bot.db"))
+    store.add_user("user-id")
+    store.set_step_index("user-id", 3)
+    replies = []
+
+    async def capture_profile(user_id):
+        assert user_id == "user-id"
+        return "小明"
+
+    async def capture_reply(reply_token, message):
+        replies.append((reply_token, message))
+
+    monkeypatch.setattr(main, "user_store", store)
+    monkeypatch.setattr(main.line_client, "get_profile", capture_profile)
+    monkeypatch.setattr(main.line_client, "reply", capture_reply)
+
+    await main.handle_event({
+        "type": "follow",
+        "webhookEventId": "follow-event",
+        "replyToken": "reply-token",
+        "source": {"userId": "user-id"},
+    })
+
+    assert store.get_step_index("user-id") == 3
+    assert replies == [("reply-token", main.welcome_messages("小明"))]
+
+
+async def test_join_event_welcomes_group_without_creating_group_player(tmp_path, monkeypatch) -> None:
+    store = UserStore(str(tmp_path / "bot.db"))
+    replies = []
+
+    async def capture_reply(reply_token, message):
+        replies.append((reply_token, message))
+
+    monkeypatch.setattr(main, "user_store", store)
+    monkeypatch.setattr(main.line_client, "reply", capture_reply)
+
+    await main.handle_event({
+        "type": "join",
+        "webhookEventId": "join-event",
+        "replyToken": "reply-token",
+        "source": {"type": "group", "groupId": "group-id"},
+    })
+
+    assert replies == [("reply-token", main.GROUP_WELCOME)]
+    assert not store.has_user("group-id")
+
+
+def test_rich_menu_postbacks_are_silent_and_can_open_keyboard() -> None:
+    assert _postback_action("map") == {
+        "type": "postback",
+        "data": "map",
+    }
+    assert _postback_action("input_answer", open_keyboard=True) == {
+        "type": "postback",
+        "data": "input_answer",
+        "inputOption": "openKeyboard",
+    }
+
+
+def test_rich_menu_postback_data_maps_to_commands() -> None:
+    assert main.POSTBACK_COMMANDS == {
+        "input_answer": "輸入答案",
+        "map": "三峽觀光地圖",
+        "current_challenge": "目前任務",
+        "game_instructions": "遊戲說明",
+        "hint": "提示",
+        "restart": "重新開始",
+    }
+
+
 
 
 def test_storyline_has_all_required_challenges() -> None:
@@ -269,6 +372,16 @@ def test_media_messages_are_preserved_for_line_replies() -> None:
     assert message_list(step.instructions) == [image]
 
 
+def test_map_message_uses_the_map_asset(monkeypatch) -> None:
+    monkeypatch.setenv("ASSET_BASE_URL", "https://example.com/assets")
+
+    assert map_message() == {
+        "type": "image",
+        "originalContentUrl": "https://example.com/assets/map.jpg",
+        "previewImageUrl": "https://example.com/assets/map.jpg",
+    }
+
+
 async def test_line_client_sends_image_and_video_messages() -> None:
     requests: list[httpx.Request] = []
 
@@ -295,6 +408,34 @@ async def test_line_client_sends_image_and_video_messages() -> None:
     ]
 
 
+async def test_line_client_accepts_a_single_image_message() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200)
+
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    line_client = LineClient("access-token", http_client)
+    await line_client.reply(
+        "reply-token",
+        {
+            "type": "image",
+            "originalContentUrl": "https://example.com/map.jpg",
+            "previewImageUrl": "https://example.com/map.jpg",
+        },
+    )
+    await http_client.aclose()
+
+    assert json.loads(requests[0].content)["messages"] == [
+        {
+            "type": "image",
+            "originalContentUrl": "https://example.com/map.jpg",
+            "previewImageUrl": "https://example.com/map.jpg",
+        }
+    ]
+
+
 async def test_line_client_starts_loading_animation() -> None:
     requests: list[httpx.Request] = []
 
@@ -309,6 +450,40 @@ async def test_line_client_starts_loading_animation() -> None:
 
     assert requests[0].url == "https://api.line.me/v2/bot/chat/loading/start"
     assert json.loads(requests[0].content) == {"chatId": "user-id", "loadingSeconds": 60}
+
+
+async def test_line_client_gets_profile_with_channel_access_token() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"displayName": "小明"})
+
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    line_client = LineClient("access-token", http_client)
+    assert await line_client.get_profile("user-id") == "小明"
+    await http_client.aclose()
+
+    assert requests[0].url == "https://api.line.me/v2/bot/profile/user-id"
+    assert requests[0].headers["Authorization"] == "Bearer access-token"
+
+
+async def test_line_client_links_a_rich_menu_to_a_user() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200)
+
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    line_client = LineClient("access-token", http_client)
+    await line_client.link_rich_menu("user-id", "richmenu-knowledge")
+    await http_client.aclose()
+
+    assert requests[0].method == "POST"
+    assert str(requests[0].url) == (
+        "https://api.line.me/v2/bot/user/user-id/richmenu/richmenu-knowledge"
+    )
 
 
 async def test_failed_success_reply_still_advances_player(tmp_path, monkeypatch) -> None:
