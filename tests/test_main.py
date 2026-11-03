@@ -217,7 +217,7 @@ def test_photo_guides_and_chapter_seven_references_are_configured() -> None:
         if isinstance(message, dict) and message["type"] == "image"
     ]
     assert chapter_five_images[0].endswith("/assets/Ch5_Photo.jpg")
-    chapter_seven = GAME_STEPS[8]
+    chapter_seven = GAME_STEPS[9]
     chapter_seven_images = [
         message["originalContentUrl"]
         for message in message_list(chapter_seven.instructions)
@@ -230,6 +230,26 @@ def test_photo_guides_and_chapter_seven_references_are_configured() -> None:
     assert chapter_seven.photo_categories == (
         "carved pillar", "bell", "temple exterior"
     )
+
+
+def test_challenge_media_is_sent_with_challenge_not_story() -> None:
+    chapter_seven = GAME_STEPS[9]
+
+    story_messages = main.step_messages(chapter_seven, 0)
+    challenge_messages = main.step_messages(chapter_seven, len(chapter_seven.story_chunks))
+
+    assert not any(message.get("type") == "image" for message in story_messages if isinstance(message, dict))
+    assert sum(message.get("type") == "image" for message in challenge_messages if isinstance(message, dict)) == 1
+
+
+def test_incorrect_quick_reply_answer_preserves_quick_replies() -> None:
+    challenge = main.step_messages(GAME_STEPS[4])[-1]
+    retry = main.incorrect_answer_message(GAME_STEPS[4])
+
+    assert isinstance(challenge, dict)
+    assert isinstance(retry, dict)
+    assert retry["text"] == "不太對喔！再想想看！"
+    assert retry["quickReply"] == challenge["quickReply"]
 
 
 def test_final_photo_challenge_has_traditional_chinese_labels() -> None:
@@ -297,6 +317,39 @@ def test_player_messages_do_not_use_narrator_label() -> None:
     ]
 
     assert all("旁白" not in message for message in player_messages)
+
+
+def test_story_chunks_remove_facilitator_scaffolding_and_colon_prefixes() -> None:
+    story = "\n".join(
+        chunk
+        for step in GAME_STEPS
+        for chunk in step.story_chunks
+    )
+
+    assert "正確答案：" not in story
+    assert "🔔提示" not in story
+    assert not any(
+        line.strip() in {":", "："} or line.lstrip().startswith((":", "："))
+        for line in story.splitlines()
+    )
+    assert "勾玉走進三峽老街" in story
+    assert "婆婆露出詭異的笑容" in story
+
+
+def test_story_chunks_preserve_paragraph_spacing() -> None:
+    first_story = GAME_STEPS[0].story_chunks[0]
+
+    assert "三峽老街前進。\n\n途中，牛角麵包香氣" in first_story
+
+
+def test_second_challenge_keeps_story_after_answer_before_chapter_two() -> None:
+    story_chunks = GAME_STEPS[2].story_chunks
+    story = "\n".join(story_chunks)
+
+    assert len(story_chunks) > 1
+    assert story_chunks[0].startswith("勾玉： 原來這塊石頭和藍染有關")
+    assert story.index("原來這塊石頭和藍染有關") < story.index("染坊？")
+    assert story.index("染坊？") < story.index("走出小巷後")
 
 
 def test_multiple_choice_challenges_include_quick_replies() -> None:

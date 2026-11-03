@@ -67,6 +67,14 @@ class UserStore:
                 CREATE INDEX IF NOT EXISTS idx_line_events_user_id ON line_events(user_id);
                 """
             )
+            for column_definition in (
+                "story_index INTEGER NOT NULL DEFAULT 0",
+                "hint_count INTEGER NOT NULL DEFAULT 0",
+            ):
+                try:
+                    connection.execute(f"ALTER TABLE players ADD COLUMN {column_definition}")
+                except sqlite3.OperationalError:
+                    pass
 
     def _migrate_legacy_csv(self) -> None:
         legacy_path = self._database_path.with_name("users.csv")
@@ -97,9 +105,34 @@ class UserStore:
     def set_step_index(self, user_id: str, step_index: int) -> None:
         with self._connect() as connection:
             connection.execute(
-                "UPDATE players SET current_challenge_id = ?, completed_at = NULL WHERE user_id = ?",
+                "UPDATE players SET current_challenge_id = ?, story_index = 0, hint_count = 0, completed_at = NULL WHERE user_id = ?",
                 (step_index, user_id),
             )
+
+    def get_story_index(self, user_id: str) -> int:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT story_index FROM players WHERE user_id = ?", (user_id,)
+            ).fetchone()
+        return int(row["story_index"]) if row else 0
+
+    def set_story_index(self, user_id: str, story_index: int) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE players SET story_index = ? WHERE user_id = ?",
+                (story_index, user_id),
+            )
+
+    def increment_hint_count(self, user_id: str) -> int:
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE players SET hint_count = hint_count + 1 WHERE user_id = ?",
+                (user_id,),
+            )
+            row = connection.execute(
+                "SELECT hint_count FROM players WHERE user_id = ?", (user_id,)
+            ).fetchone()
+        return int(row["hint_count"]) if row else 0
 
     def mark_completed(self, user_id: str) -> None:
         with self._connect() as connection:
@@ -120,13 +153,13 @@ class UserStore:
             )
             connection.execute("DELETE FROM submissions WHERE user_id = ?", (user_id,))
             connection.execute(
-                "UPDATE players SET current_challenge_id = 0, completed_at = NULL WHERE user_id = ?",
+                "UPDATE players SET current_challenge_id = 0, story_index = 0, hint_count = 0, completed_at = NULL WHERE user_id = ?",
                 (user_id,),
             )
 
     def reset_all(self) -> None:
         with self._connect() as connection:
-            connection.execute("UPDATE players SET current_challenge_id = 0, completed_at = NULL")
+            connection.execute("UPDATE players SET current_challenge_id = 0, story_index = 0, hint_count = 0, completed_at = NULL")
 
     def has_user(self, user_id: str) -> bool:
         with self._connect() as connection:

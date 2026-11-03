@@ -11,7 +11,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 
 from .config import Settings
-from .game import GameStep, Message, answer_is_correct, current_step, distance_meters, map_message, message_list
+from .game import GAME_STEPS, GameStep, Message, answer_is_correct, current_step, distance_meters, map_message, message_list
 from .integrations import GeminiClient, LineClient, UserStore
 
 logging.basicConfig(level=logging.INFO)
@@ -51,6 +51,7 @@ INPUT_COMMANDS = {"輸入答案"}
 CURRENT_CHALLENGE_COMMANDS = {"目前任務", "目前挑戰", "重看任務"}
 INTRO_COMMANDS = {"遊戲說明", "初始說明"}
 HINT_COMMANDS = {"提示", "查看提示"}
+CONTINUE_COMMANDS = {"請繼續"}
 INITIAL_INSTRUCTIONS = """🎒 【出發前，請確認你的裝備】
 1. 實體解謎道具包（內含各關卡信封、照片、拼圖）
 2. 三峽區觀光導覽地圖（可於遊客服務中心索取）
@@ -105,45 +106,17 @@ async def send_reply(
         logger.exception("Could not send LINE reply for user %s", user_id)
 
 
-def step_messages(step: GameStep) -> list[Message]:
+def step_messages(step: GameStep, story_index: int = 0) -> list[Message]:
     source_messages = message_list(step.instructions)
-    challenge_index = next(
-        index
-        for index in range(len(source_messages) - 1, -1, -1)
-        if isinstance(source_messages[index], str)
-    )
-    challenge = source_messages[challenge_index]
-    storyline = [
-        message
-        for index, message in enumerate(source_messages)
-        if isinstance(message, str) and index != challenge_index
-    ]
-    audio_messages = [
-        message
-        for message in source_messages
-        if isinstance(message, dict) and message["type"] == "audio"
-    ]
-    other_messages = [
-        message
-        for index, message in enumerate(source_messages)
-        if index != challenge_index
-        and not (isinstance(message, str) or (
-            isinstance(message, dict) and message["type"] == "audio"
-        ))
-    ]
-    messages = (
-        ([("\n\n".join(storyline))] if storyline else [])
-        + other_messages
-        + audio_messages
-        + [challenge]
-    )
-    if not step.quick_reply_options and not step.quick_reply_location:
-        return messages
-
-    challenge_index = len(messages) - 1
-    challenge = messages[challenge_index]
+    challenge = next(message for message in reversed(source_messages) if isinstance(message, str))
+    media = [message for message in source_messages if isinstance(message, dict)]
+    if story_index < len(step.story_chunks):
+        return [story_message(step.story_chunks[story_index], True)]
+    messages = [*media, challenge]
     if not isinstance(challenge, str):
         raise ValueError(f"Challenge text missing for step {step.title!r}")
+    if not step.quick_reply_options and not step.quick_reply_location:
+        return messages
     quick_reply_items = [
         {"type": "action", "action": {"type": "message", "label": option, "text": option}}
         for option in step.quick_reply_options
@@ -152,7 +125,7 @@ def step_messages(step: GameStep) -> list[Message]:
         quick_reply_items.append(
             {"type": "action", "action": {"type": "location", "label": "分享目前位置"}}
         )
-    messages[challenge_index] = {
+    messages[-1] = {
         "type": "text",
         "text": challenge,
         "quickReply": {
@@ -160,6 +133,15 @@ def step_messages(step: GameStep) -> list[Message]:
         },
     }
     return messages
+
+
+def story_message(text: str, has_next: bool) -> Message:
+    message: dict[str, Any] = {"type": "text", "text": text}
+    if has_next:
+        message["quickReply"] = {
+            "items": [{"type": "action", "action": {"type": "message", "label": "請繼續", "text": "請繼續"}}]
+        }
+    return message
 
 
 def location_retry_message(text: str) -> Message:
@@ -172,6 +154,17 @@ def location_retry_message(text: str) -> Message:
             ]
         },
     }
+
+
+def incorrect_answer_message(step: GameStep) -> Message:
+    challenge_message = step_messages(step)[-1]
+    if isinstance(challenge_message, dict) and "quickReply" in challenge_message:
+        return {
+            "type": "text",
+            "text": "不太對喔！再想想看！",
+            "quickReply": challenge_message["quickReply"],
+        }
+    return "不太對喔！再想想看！"
 
 
 def welcome_messages(nickname: str) -> list[Message]:
@@ -308,6 +301,7 @@ async def handle_event(event: dict[str, Any]) -> None:
         or command in CURRENT_CHALLENGE_COMMANDS
         or command in INTRO_COMMANDS
         or command in HINT_COMMANDS
+        or command in CONTINUE_COMMANDS
     ):
         store.add_user(user_id)
 
@@ -316,7 +310,7 @@ async def handle_event(event: dict[str, Any]) -> None:
         step = current_step(0)
         await send_reply(
             store, reply_token, user_id,
-            ["新的旅程開始了。", *(step_messages(step) if step else [])],
+            ["新的旅程開始了。", *(step_messages(step, store.get_story_index(user_id)) if step else [])],
         )
         return
 
@@ -334,7 +328,7 @@ async def handle_event(event: dict[str, Any]) -> None:
             store,
             reply_token,
             user_id,
-            step_messages(step) if step else "旅程已完成，謝謝你的參與！",
+            step_messages(step, store.get_story_index(user_id)) if step else "旅程已完成，謝謝你的參與！",
         )
         return
 
@@ -343,11 +337,25 @@ async def handle_event(event: dict[str, Any]) -> None:
         if step is None:
             await send_reply(store, reply_token, user_id, "旅程已完成，沒有需要提示的關卡。")
         else:
+            hint_number = store.increment_hint_count(user_id)
+            hints = step.hints or ((step.hint, ""),)
+            hint = hints[min(hint_number - 1, len(hints) - 1)]
+            current_messages = step_messages(step, store.get_story_index(user_id))
+            follow_up = current_messages[-1] if current_messages else None
+            hint_text = hint or "本關提示正在準備中，請先依照目前任務中的線索探索看看！"
+            if isinstance(follow_up, dict) and "quickReply" in follow_up:
+                hint_message: Message = {
+                    "type": "text",
+                    "text": hint_text,
+                    "quickReply": follow_up["quickReply"],
+                }
+            else:
+                hint_message = hint_text
             await send_reply(
                 store,
                 reply_token,
                 user_id,
-                step.hint or "本關提示正在準備中，請先依照目前任務中的線索探索看看！",
+                hint_message,
             )
         return
 
@@ -360,7 +368,33 @@ async def handle_event(event: dict[str, Any]) -> None:
 
     step = current_step(store.get_step_index(user_id))
     if step is None:
+        if store.get_step_index(user_id) == len(GAME_STEPS):
+            ending_chunks = GAME_STEPS[-1].ending_chunks
+            story_index = store.get_story_index(user_id)
+            if story_index < len(ending_chunks):
+                store.set_story_index(user_id, story_index + 1)
+                if story_index + 1 == len(ending_chunks):
+                    store.mark_completed(user_id)
+                await send_reply(
+                    store,
+                    reply_token,
+                    user_id,
+                    story_message(ending_chunks[story_index], story_index + 1 < len(ending_chunks)),
+                )
+                return
         await send_reply(store, reply_token, user_id, "旅程已完成，謝謝你的參與！")
+        return
+
+    if command in CONTINUE_COMMANDS:
+        story_index = store.get_story_index(user_id)
+        if story_index < len(step.story_chunks):
+            store.set_story_index(user_id, story_index + 1)
+        await send_reply(
+            store,
+            reply_token,
+            user_id,
+            step_messages(step, store.get_story_index(user_id)),
+        )
         return
 
     if command in {"進度", "目前進度", "progress"}:
@@ -370,11 +404,20 @@ async def handle_event(event: dict[str, Any]) -> None:
         )
         return
 
+    if step.story_chunks and store.get_story_index(user_id) < len(step.story_chunks):
+        await send_reply(
+            store,
+            reply_token,
+            user_id,
+            step_messages(step, store.get_story_index(user_id)),
+        )
+        return
+
     if step.kind == "text" and message_type == "text":
         submission_id = store.start_submission(user_id, store.get_step_index(user_id), event.get("webhookEventId"), message_type)
         if not answer_is_correct(step, message.get("text", "")):
             store.finish_submission(submission_id, "incorrect")
-            await send_reply(store, reply_token, user_id, "不太對喔！再想想看！")
+            await send_reply(store, reply_token, user_id, incorrect_answer_message(step))
             return
         store.finish_submission(submission_id, "accepted")
         await advance_player(store, user_id, reply_token, step.success_message)
@@ -486,11 +529,17 @@ async def advance_player(
 ) -> None:
     next_index = store.get_step_index(user_id) + 1
     next_step = current_step(next_index)
-    message = ["沒錯！正確答案！", *message_list(success_message)]
+    ending_chunks = GAME_STEPS[-1].ending_chunks if next_step is None else ()
+    if ending_chunks:
+        message = ["沒錯！正確答案！", story_message(ending_chunks[0], len(ending_chunks) > 1)]
+    else:
+        message = ["沒錯！正確答案！", *message_list(success_message)]
     if next_step:
-        message.extend(step_messages(next_step))
+        message.extend(step_messages(next_step, 0))
     store.set_step_index(user_id, next_index)
-    if next_step is None:
+    if ending_chunks:
+        store.set_story_index(user_id, 1)
+    elif next_step is None:
         store.mark_completed(user_id)
     if message:
         await send_reply(store, reply_token, user_id, message)
