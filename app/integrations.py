@@ -70,6 +70,7 @@ class UserStore:
             for column_definition in (
                 "story_index INTEGER NOT NULL DEFAULT 0",
                 "hint_count INTEGER NOT NULL DEFAULT 0",
+                "route_hint_count INTEGER NOT NULL DEFAULT 0",
             ):
                 try:
                     connection.execute(f"ALTER TABLE players ADD COLUMN {column_definition}")
@@ -105,7 +106,7 @@ class UserStore:
     def set_step_index(self, user_id: str, step_index: int) -> None:
         with self._connect() as connection:
             connection.execute(
-                "UPDATE players SET current_challenge_id = ?, story_index = 0, hint_count = 0, completed_at = NULL WHERE user_id = ?",
+                "UPDATE players SET current_challenge_id = ?, story_index = 0, hint_count = 0, route_hint_count = 0, completed_at = NULL WHERE user_id = ?",
                 (step_index, user_id),
             )
 
@@ -134,6 +135,17 @@ class UserStore:
             ).fetchone()
         return int(row["hint_count"]) if row else 0
 
+    def increment_route_hint_count(self, user_id: str) -> int:
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE players SET route_hint_count = route_hint_count + 1 WHERE user_id = ?",
+                (user_id,),
+            )
+            row = connection.execute(
+                "SELECT route_hint_count FROM players WHERE user_id = ?", (user_id,)
+            ).fetchone()
+        return int(row["route_hint_count"]) if row else 0
+
     def mark_completed(self, user_id: str) -> None:
         with self._connect() as connection:
             connection.execute(
@@ -153,13 +165,13 @@ class UserStore:
             )
             connection.execute("DELETE FROM submissions WHERE user_id = ?", (user_id,))
             connection.execute(
-                "UPDATE players SET current_challenge_id = 0, story_index = 0, hint_count = 0, completed_at = NULL WHERE user_id = ?",
+                "UPDATE players SET current_challenge_id = 0, story_index = 0, hint_count = 0, route_hint_count = 0, completed_at = NULL WHERE user_id = ?",
                 (user_id,),
             )
 
     def reset_all(self) -> None:
         with self._connect() as connection:
-            connection.execute("UPDATE players SET current_challenge_id = 0, story_index = 0, hint_count = 0, completed_at = NULL")
+            connection.execute("UPDATE players SET current_challenge_id = 0, story_index = 0, hint_count = 0, route_hint_count = 0, completed_at = NULL")
 
     def has_user(self, user_id: str) -> bool:
         with self._connect() as connection:

@@ -11,7 +11,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 
 from .config import Settings
-from .game import GAME_STEPS, GameStep, Message, answer_is_correct, current_step, distance_meters, map_message, message_list
+from .game import GAME_STEPS, GameStep, Message, answer_is_correct, current_step, distance_meters, map_message, message_list, route_hint_for_target
 from .integrations import GeminiClient, LineClient, UserStore
 
 logging.basicConfig(level=logging.INFO)
@@ -111,7 +111,10 @@ def step_messages(step: GameStep, story_index: int = 0) -> list[Message]:
     challenge = next(message for message in reversed(source_messages) if isinstance(message, str))
     media = [message for message in source_messages if isinstance(message, dict)]
     if story_index < len(step.story_chunks):
-        return [story_message(step.story_chunks[story_index], True)]
+        story = step.story_chunks[story_index]
+        target_match = re.search(r"🌟\s*([^，。！？；：、)）\n]+)", story)
+        target = re.sub(r"[「」『』\"“”]", "", target_match.group(1)).strip() if target_match else ""
+        return [story_message(story, True, target if route_hint_for_target(target) else "")]
     messages = [*media, challenge]
     if not isinstance(challenge, str):
         raise ValueError(f"Challenge text missing for step {step.title!r}")
@@ -135,13 +138,31 @@ def step_messages(step: GameStep, story_index: int = 0) -> list[Message]:
     return messages
 
 
-def story_message(text: str, has_next: bool) -> Message:
+def story_message(text: str, has_next: bool, target: str = "") -> Message:
     message: dict[str, Any] = {"type": "text", "text": text}
     if has_next:
+        items = [{"type": "action", "action": {"type": "message", "label": "請繼續", "text": "請繼續"}}]
+        if target:
+            items.append(
+                {"type": "action", "action": {"type": "message", "label": f"{target}怎麼去？", "text": f"{target}怎麼去？"}}
+            )
         message["quickReply"] = {
-            "items": [{"type": "action", "action": {"type": "message", "label": "請繼續", "text": "請繼續"}}]
+            "items": items
         }
     return message
+
+
+def route_hint_message(text: str, target: str) -> Message:
+    return {
+        "type": "text",
+        "text": text,
+        "quickReply": {
+            "items": [
+                {"type": "action", "action": {"type": "message", "label": "請繼續", "text": "請繼續"}},
+                {"type": "action", "action": {"type": "message", "label": f"{target}怎麼去？", "text": f"{target}怎麼去？"}},
+            ]
+        },
+    }
 
 
 def location_retry_message(text: str) -> Message:
@@ -271,6 +292,16 @@ async def handle_event(event: dict[str, Any]) -> None:
     else:
         command = normalize_command(message.get("text", "")) if message_type == "text" else ""
 
+    if command.endswith("怎麼去"):
+        target = command.removesuffix("怎麼去")
+        hint_number = store.increment_route_hint_count(user_id) if store.has_user(user_id) else 1
+        route_hint = route_hint_for_target(target, hint_number)
+        if route_hint:
+            if not store.has_user(user_id):
+                store.add_user(user_id)
+            await send_reply(store, reply_token, user_id, route_hint_message(route_hint, target))
+            return
+
     if command in MAP_COMMANDS:
         if not store.has_user(user_id):
             store.add_user(user_id)
@@ -337,6 +368,15 @@ async def handle_event(event: dict[str, Any]) -> None:
         if step is None:
             await send_reply(store, reply_token, user_id, "旅程已完成，沒有需要提示的關卡。")
         else:
+            story_index = store.get_story_index(user_id)
+            if story_index < len(step.story_chunks):
+                story = step.story_chunks[story_index]
+                target_match = re.search(r"🌟\s*([^，。！？；：、)）\n]+)", story)
+                target = re.sub(r"[「」『』\"“”]", "", target_match.group(1)).strip() if target_match else ""
+                route_hint = route_hint_for_target(target)
+                if route_hint:
+                    await send_reply(store, reply_token, user_id, route_hint_message(route_hint, target))
+                    return
             hint_number = store.increment_hint_count(user_id)
             hints = step.hints or ((step.hint, ""),)
             hint = hints[min(hint_number - 1, len(hints) - 1)]

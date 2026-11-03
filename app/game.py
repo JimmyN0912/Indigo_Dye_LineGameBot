@@ -128,6 +128,63 @@ def _story_to_end(start: str) -> str:
     return _STORYLINE[_STORYLINE.index(start) + len(start):].strip()
 
 
+def _story_target(text: str) -> str:
+    target_matches = list(re.finditer(r"🌟\s*([^，。！？；：、)）\n]+)", text))
+    target_match = target_matches[-1] if target_matches else None
+    if not target_match:
+        return ""
+    return re.sub(r"[「」『』\"“”]", "", target_match.group(1)).strip()
+
+
+def _normalize_route_target(value: str) -> str:
+    return re.sub(r"[\s，,。.!！?？:：；;、]+", "", value).casefold()
+
+
+def _extract_route_hints() -> dict[str, tuple[str, ...]]:
+    route_hints: dict[str, tuple[str, ...]] = {}
+    story_lines: list[str] = []
+    route_target = ""
+    hint_lines: list[str] = []
+    in_route_hint = False
+
+    for line in _STORYLINE.splitlines():
+        stripped_line = line.strip()
+        if re.match(r"^(?:😶‍🌫️)?路線提示", stripped_line):
+            if in_route_hint and route_target and hint_lines:
+                key = _normalize_route_target(route_target)
+                route_hints[key] = (*route_hints.get(key, ()), "\n".join(hint_lines))
+                hint_lines = []
+            route_target = _story_target("\n".join(story_lines)) or route_target
+            in_route_hint = True
+            continue
+        if in_route_hint:
+            if not stripped_line:
+                if route_target and hint_lines:
+                    key = _normalize_route_target(route_target)
+                    route_hints[key] = (*route_hints.get(key, ()), "\n".join(hint_lines))
+                hint_lines = []
+                in_route_hint = False
+            else:
+                hint_lines.append(stripped_line)
+            continue
+        story_lines.append(line)
+
+    if route_target and hint_lines:
+        key = _normalize_route_target(route_target)
+        route_hints[key] = (*route_hints.get(key, ()), "\n".join(hint_lines))
+    return route_hints
+
+
+_ROUTE_HINTS = _extract_route_hints()
+
+
+def route_hint_for_target(target: str, hint_number: int = 1) -> str:
+    hints = _ROUTE_HINTS.get(_normalize_route_target(target), ())
+    if not hints:
+        return ""
+    return hints[min(max(hint_number, 1) - 1, len(hints) - 1)]
+
+
 def _story_split_on_heading(start: str, heading: str) -> list[str]:
     before_heading, marker, after_heading = _story_to_end(start).partition(heading)
     if not marker:
@@ -146,8 +203,16 @@ def _story_narrative(start: str, end: str) -> str:
 def _clean_story(text: str) -> str:
     cleaned_lines = []
     in_hint = False
+    in_route_hint = False
     for line in text.splitlines():
         stripped_line = line.strip()
+        if re.match(r"^(?:😶‍🌫️)?路線提示", stripped_line):
+            in_route_hint = True
+            continue
+        if in_route_hint:
+            if not stripped_line:
+                in_route_hint = False
+            continue
         if not stripped_line:
             if not in_hint:
                 cleaned_lines.append("")
@@ -170,39 +235,48 @@ def _clean_story(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", "\n".join(cleaned_lines)).strip()
 
 
+def _story_chunk_parts(text: str) -> tuple[str, ...]:
+    chunks: list[str] = []
+    current_lines: list[str] = []
+    in_route_hint = False
+
+    for line in text.splitlines():
+        stripped_line = line.strip()
+        if re.match(r"^(?:😶‍🌫️)?路線提示", stripped_line):
+            cleaned = _clean_story("\n".join(current_lines))
+            if cleaned:
+                chunks.append(cleaned)
+            current_lines = []
+            in_route_hint = True
+            continue
+        if in_route_hint:
+            if not stripped_line:
+                in_route_hint = False
+            continue
+        if re.fullmatch(r"[（(]請繼續[）)]", stripped_line):
+            cleaned = _clean_story("\n".join(current_lines))
+            if cleaned:
+                chunks.append(cleaned)
+            current_lines = []
+            continue
+        current_lines.append(line)
+
+    cleaned = _clean_story("\n".join(current_lines))
+    if cleaned:
+        chunks.append(cleaned)
+    return tuple(chunks)
+
+
 def _story_chunks(start: str, end: str) -> tuple[str, ...]:
-    text = _story_between(start, end)
-    return tuple(
-        part
-        for part in (
-            _clean_story(chunk)
-            for chunk in re.split(r"[（(]請繼續[）)]", text)
-        )
-        if part
-    )
+    return _story_chunk_parts(_story_between(start, end))
 
 
 def _story_chunks_after(start: str, end: str) -> tuple[str, ...]:
-    text = _story_after(start, end)
-    return tuple(
-        part
-        for part in (
-            _clean_story(chunk)
-            for chunk in re.split(r"[（(]請繼續[）)]", text)
-        )
-        if part
-    )
+    return _story_chunk_parts(_story_after(start, end))
 
 
 def _story_chunks_to_end(start: str) -> tuple[str, ...]:
-    return tuple(
-        part
-        for part in (
-            _clean_story(chunk)
-            for chunk in re.split(r"[（(]請繼續[）)]", _story_to_end(start))
-        )
-        if part
-    )
+    return _story_chunk_parts(_story_to_end(start))
 
 
 def _challenge(start: str, heading: str, answer_marker: str, include_answer_marker: bool = False) -> str:

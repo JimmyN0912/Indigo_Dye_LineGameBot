@@ -175,6 +175,111 @@ async def test_join_event_welcomes_group_without_creating_group_player(tmp_path,
     assert not store.has_user("group-id")
 
 
+async def test_route_question_returns_route_hint_instead_of_resending_story(tmp_path, monkeypatch) -> None:
+    store = UserStore(str(tmp_path / "bot.db"))
+    store.add_user("user-id")
+    store.set_step_index("user-id", 2)
+    store.set_story_index("user-id", 3)
+    replies = []
+
+    async def capture_reply(reply_token, message):
+        replies.append((reply_token, message))
+
+    monkeypatch.setattr(main, "user_store", store)
+    monkeypatch.setattr(main.line_client, "reply", capture_reply)
+
+    await main.handle_event({
+        "type": "message",
+        "webhookEventId": "route-event",
+        "replyToken": "reply-token",
+        "source": {"userId": "user-id"},
+        "message": {"type": "text", "text": "藍染公園怎麼去？"},
+    })
+
+    assert replies == [
+        (
+            "reply-token",
+            {
+                "type": "text",
+                "text": "請查閱藍染地圖之圖示四與五，並根據圖示方向前進。",
+                "quickReply": {
+                    "items": [
+                        {"type": "action", "action": {"type": "message", "label": "請繼續", "text": "請繼續"}},
+                        {"type": "action", "action": {"type": "message", "label": "藍染公園怎麼去？", "text": "藍染公園怎麼去？"}},
+                    ]
+                },
+            },
+        )
+    ]
+
+
+async def test_route_question_can_return_second_hint(tmp_path, monkeypatch) -> None:
+    store = UserStore(str(tmp_path / "bot.db"))
+    store.add_user("user-id")
+    store.set_step_index("user-id", 3)
+    store.set_story_index("user-id", 0)
+    replies = []
+
+    async def capture_reply(reply_token, message):
+        replies.append(message)
+
+    monkeypatch.setattr(main, "user_store", store)
+    monkeypatch.setattr(main.line_client, "reply", capture_reply)
+
+    event = {
+        "type": "message",
+        "replyToken": "reply-token",
+        "source": {"userId": "user-id"},
+        "message": {"type": "text", "text": "青出於染工作坊怎麼去？"},
+    }
+    await main.handle_event({**event, "webhookEventId": "route-first-hint"})
+    await main.handle_event({
+        **event,
+        "webhookEventId": "route-second-hint",
+        "message": {"type": "text", "text": "青出於染工作坊怎麼去？"},
+    })
+
+    assert replies[0]["text"] == "請查閱藍染地圖之圖示六，並根據圖示給予的線索，找到染坊。"
+    assert replies[1]["text"] == "請查閱藍染地圖之圖示六，並抬頭尋找地圖給予之線索提示。"
+
+
+async def test_challenge_ten_hint_starts_with_route_hint(tmp_path, monkeypatch) -> None:
+    store = UserStore(str(tmp_path / "bot.db"))
+    store.add_user("user-id")
+    store.set_step_index("user-id", 9)
+    store.set_story_index("user-id", len(GAME_STEPS[9].story_chunks))
+    replies = []
+
+    async def capture_reply(reply_token, message):
+        replies.append(message)
+
+    monkeypatch.setattr(main, "user_store", store)
+    monkeypatch.setattr(main.line_client, "reply", capture_reply)
+
+    await main.handle_event({
+        "type": "message",
+        "webhookEventId": "challenge-ten-route-hint",
+        "replyToken": "reply-token",
+        "source": {"userId": "user-id"},
+        "message": {"type": "text", "text": "祖師廟怎麼去"},
+    })
+    await main.handle_event({
+        "type": "message",
+        "webhookEventId": "challenge-ten-hint",
+        "replyToken": "reply-token",
+        "source": {"userId": "user-id"},
+        "message": {"type": "text", "text": "提示"},
+    })
+
+    assert replies[1] == "照片分別為外觀一張、內部一樓一張、二樓一張"
+
+
+def test_story_without_route_hint_only_offers_continue() -> None:
+    message = main.step_messages(GAME_STEPS[6], story_index=0)[0]
+
+    assert [item["action"]["text"] for item in message["quickReply"]["items"]] == ["請繼續"]
+
+
 def test_rich_menu_postbacks_are_silent_and_can_open_keyboard() -> None:
     assert _postback_action("map") == {
         "type": "postback",
@@ -334,6 +439,16 @@ def test_story_chunks_remove_facilitator_scaffolding_and_colon_prefixes() -> Non
     )
     assert "勾玉走進三峽老街" in story
     assert "婆婆露出詭異的笑容" in story
+    assert "路線提示" not in story
+
+
+def test_route_story_message_has_continue_and_target_quick_replies() -> None:
+    message = main.step_messages(GAME_STEPS[2], story_index=3)[0]
+
+    assert message["quickReply"]["items"] == [
+        {"type": "action", "action": {"type": "message", "label": "請繼續", "text": "請繼續"}},
+        {"type": "action", "action": {"type": "message", "label": "藍染公園怎麼去？", "text": "藍染公園怎麼去？"}},
+    ]
 
 
 def test_story_chunks_preserve_paragraph_spacing() -> None:
