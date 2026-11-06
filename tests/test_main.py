@@ -275,9 +275,11 @@ async def test_challenge_ten_hint_starts_with_route_hint(tmp_path, monkeypatch) 
 
 
 def test_story_without_route_hint_only_offers_continue() -> None:
-    message = main.step_messages(GAME_STEPS[6], story_index=0)[0]
+    messages = main.step_messages(GAME_STEPS[6], story_index=0)
+    message = messages[0]
 
     assert [item["action"]["text"] for item in message["quickReply"]["items"]] == ["請繼續"]
+    assert messages[1]["quickReply"] == message["quickReply"]
 
 
 def test_rich_menu_postbacks_are_silent_and_can_open_keyboard() -> None:
@@ -443,7 +445,8 @@ def test_story_chunks_remove_facilitator_scaffolding_and_colon_prefixes() -> Non
 
 
 def test_route_story_message_has_continue_and_target_quick_replies() -> None:
-    message = main.step_messages(GAME_STEPS[2], story_index=3)[0]
+    messages = main.step_messages(GAME_STEPS[2], story_index=3)
+    message = messages[0]
 
     assert message["quickReply"]["items"] == [
         {"type": "action", "action": {"type": "message", "label": "請繼續", "text": "請繼續"}},
@@ -619,30 +622,43 @@ def test_audio_asset_message_rejects_non_positive_duration() -> None:
         audio_asset_message("clue.m4a", 0)
 
 
-def test_challenge_audio_is_configured_in_order() -> None:
-    audio_urls = [
-        message["originalContentUrl"]
-        for step in GAME_STEPS
-        for content in (step.instructions, step.success_message)
-        for message in message_list(content)
-        if isinstance(message, dict) and message["type"] == "audio"
-    ]
+def test_story_audio_is_configured_in_order() -> None:
+    audio_names = []
+    for step in GAME_STEPS:
+        for story_index in range(len(step.story_chunks)):
+            messages = main.step_messages(step, story_index)
+            if len(messages) == 2:
+                audio_names.append(messages[1]["originalContentUrl"].rsplit("/", 1)[-1])
+    for story_index in range(len(GAME_STEPS[-1].ending_chunks)):
+        audio_names.append(
+            main.story_reply(
+                GAME_STEPS[-1].ending_chunks[story_index],
+                story_index + 1 < len(GAME_STEPS[-1].ending_chunks),
+                sum(len(step.story_chunks) for step in GAME_STEPS)
+                - len(main.SILENT_STORY_CHUNKS)
+                + story_index,
+            )[1]["originalContentUrl"].rsplit("/", 1)[-1]
+        )
 
-    assert [url.rsplit("/", 1)[-1] for url in audio_urls] == [
-        "Ch0.mp3",
-        "Ch1-1.mp3",
-        "Ch1-2.mp3",
-        "Ch2-1.mp3",
-        "Ch2-2.mp3",
-        "Ch3-1.mp3",
-        "Ch3-2.mp3",
-        "Ch4-1.mp3",
-        "Ch4-2.mp3",
-        "Ch5-1.mp3",
-        "Ch6-1.mp3",
-        "Ch7.mp3",
-        "Ch8.mp3",
-    ]
+    assert audio_names == [f"msg{index}.mp3" for index in range(1, 28)]
+
+
+def test_history_museum_route_story_uses_msg10_audio() -> None:
+    messages = main.step_messages(GAME_STEPS[4], story_index=1)
+
+    assert messages[1]["originalContentUrl"].endswith("/msg10.mp3")
+
+
+def test_history_museum_arrival_story_uses_msg11_audio() -> None:
+    messages = main.step_messages(GAME_STEPS[4], story_index=2)
+
+    assert messages[1]["originalContentUrl"].endswith("/msg11.mp3")
+
+
+def test_temple_clue_story_uses_msg23_audio() -> None:
+    messages = main.step_messages(GAME_STEPS[9], story_index=1)
+
+    assert messages[1]["originalContentUrl"].endswith("/msg23.mp3")
 
 
 async def test_line_client_sends_image_video_and_audio_messages() -> None:

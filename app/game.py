@@ -110,6 +110,19 @@ def _audio_message(filename: str, duration_ms: int) -> AudioMessage:
     return audio_asset_message(filename, duration_ms)
 
 
+_STORY_AUDIO_DURATIONS_MS = (
+    81006, 23092, 48457, 15386, 21185, 34534, 28160, 29832, 45741,
+    10109, 30955, 35344, 42841, 28186, 59193, 117864, 22805, 15987,
+    27350, 79256, 16536, 42789, 11546, 14942, 19513, 64235, 85995,
+)
+
+
+def story_audio_message(index: int) -> AudioMessage:
+    if not 0 <= index < len(_STORY_AUDIO_DURATIONS_MS):
+        raise IndexError(f"Story audio index out of range: {index}")
+    return _audio_message(f"msg{index + 1}.mp3", _STORY_AUDIO_DURATIONS_MS[index])
+
+
 def _story_between(start: str, end: str) -> str:
     start_index = _STORYLINE.index(start)
     end_index = _STORYLINE.index(end, start_index + len(start))

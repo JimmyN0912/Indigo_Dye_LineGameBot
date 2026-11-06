@@ -11,7 +11,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 
 from .config import Settings
-from .game import GAME_STEPS, GameStep, Message, answer_is_correct, current_step, distance_meters, map_message, message_list, route_hint_for_target
+from .game import GAME_STEPS, GameStep, Message, answer_is_correct, current_step, distance_meters, map_message, message_list, route_hint_for_target, story_audio_message
 from .integrations import GeminiClient, LineClient, UserStore
 
 logging.basicConfig(level=logging.INFO)
@@ -52,6 +52,7 @@ CURRENT_CHALLENGE_COMMANDS = {"目前任務", "目前挑戰", "重看任務"}
 INTRO_COMMANDS = {"遊戲說明", "初始說明"}
 HINT_COMMANDS = {"提示", "查看提示"}
 CONTINUE_COMMANDS = {"請繼續"}
+SILENT_STORY_CHUNKS = {(2, 3)}
 INITIAL_INSTRUCTIONS = """🎒 【出發前，請確認你的裝備】
 1. 實體解謎道具包（內含各關卡信封、照片、拼圖）
 2. 三峽區觀光導覽地圖（可於遊客服務中心索取）
@@ -114,7 +115,17 @@ def step_messages(step: GameStep, story_index: int = 0) -> list[Message]:
         story = step.story_chunks[story_index]
         target_match = re.search(r"🌟\s*([^，。！？；：、)）\n]+)", story)
         target = re.sub(r"[「」『』\"“”]", "", target_match.group(1)).strip() if target_match else ""
-        return [story_message(story, True, target if route_hint_for_target(target) else "")]
+        story_message_payload = story_message(
+            story, True, target if route_hint_for_target(target) else ""
+        )
+        messages = [story_message_payload]
+        audio_index = story_audio_index(step, story_index)
+        if audio_index is not None:
+            audio_message = story_audio_message(audio_index)
+            if isinstance(story_message_payload, dict) and "quickReply" in story_message_payload:
+                audio_message["quickReply"] = story_message_payload["quickReply"]
+            messages.append(audio_message)
+        return messages
     messages = [*media, challenge]
     if not isinstance(challenge, str):
         raise ValueError(f"Challenge text missing for step {step.title!r}")
@@ -150,6 +161,31 @@ def story_message(text: str, has_next: bool, target: str = "") -> Message:
             "items": items
         }
     return message
+
+
+def story_audio_index(step: GameStep, story_index: int) -> int | None:
+    step_index = GAME_STEPS.index(step)
+    if (step_index, story_index) in SILENT_STORY_CHUNKS:
+        return None
+    previous_audio_count = sum(
+        len(game_step.story_chunks) for game_step in GAME_STEPS[:step_index]
+    ) - sum(
+        1 for silent_step, _ in SILENT_STORY_CHUNKS if silent_step < step_index
+    )
+    current_audio_count = sum(
+        1
+        for previous_story_index in range(story_index)
+        if (step_index, previous_story_index) not in SILENT_STORY_CHUNKS
+    )
+    return previous_audio_count + current_audio_count
+
+
+def story_reply(text: str, has_next: bool, audio_index: int, target: str = "") -> list[Message]:
+    story_message_payload = story_message(text, has_next, target)
+    audio_message = story_audio_message(audio_index)
+    if isinstance(story_message_payload, dict) and "quickReply" in story_message_payload:
+        audio_message["quickReply"] = story_message_payload["quickReply"]
+    return [story_message_payload, audio_message]
 
 
 def route_hint_message(text: str, target: str) -> Message:
@@ -381,7 +417,14 @@ async def handle_event(event: dict[str, Any]) -> None:
             hints = step.hints or ((step.hint, ""),)
             hint = hints[min(hint_number - 1, len(hints) - 1)]
             current_messages = step_messages(step, store.get_story_index(user_id))
-            follow_up = current_messages[-1] if current_messages else None
+            follow_up = next(
+                (
+                    message
+                    for message in reversed(current_messages)
+                    if isinstance(message, dict) and "quickReply" in message
+                ),
+                None,
+            )
             hint_text = hint or "本關提示正在準備中，請先依照目前任務中的線索探索看看！"
             if isinstance(follow_up, dict) and "quickReply" in follow_up:
                 hint_message: Message = {
@@ -416,10 +459,14 @@ async def handle_event(event: dict[str, Any]) -> None:
                 if story_index + 1 == len(ending_chunks):
                     store.mark_completed(user_id)
                 await send_reply(
-                    store,
-                    reply_token,
-                    user_id,
-                    story_message(ending_chunks[story_index], story_index + 1 < len(ending_chunks)),
+                    store, reply_token, user_id,
+                    story_reply(
+                        ending_chunks[story_index],
+                        story_index + 1 < len(ending_chunks),
+                        sum(len(game_step.story_chunks) for game_step in GAME_STEPS)
+                        - len(SILENT_STORY_CHUNKS)
+                        + story_index,
+                    ),
                 )
                 return
         await send_reply(store, reply_token, user_id, "旅程已完成，謝謝你的參與！")
@@ -571,7 +618,15 @@ async def advance_player(
     next_step = current_step(next_index)
     ending_chunks = GAME_STEPS[-1].ending_chunks if next_step is None else ()
     if ending_chunks:
-        message = ["沒錯！正確答案！", story_message(ending_chunks[0], len(ending_chunks) > 1)]
+        message = [
+            "沒錯！正確答案！",
+            *story_reply(
+                ending_chunks[0],
+                len(ending_chunks) > 1,
+                sum(len(game_step.story_chunks) for game_step in GAME_STEPS)
+                - len(SILENT_STORY_CHUNKS),
+            ),
+        ]
     else:
         message = ["沒錯！正確答案！", *message_list(success_message)]
     if next_step:
