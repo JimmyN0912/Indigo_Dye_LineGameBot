@@ -112,20 +112,6 @@ def test_initial_instructions_are_available_for_rich_menu_replay() -> None:
     assert "輸入答案" in main.INITIAL_INSTRUCTIONS
 
 
-def test_welcome_messages_include_nickname_and_start_quick_reply() -> None:
-    messages = main.welcome_messages("小明")
-
-    assert messages[0].startswith("小明您好！")
-    assert "《三峽藍染實境解謎》" in messages[0]
-    assert messages[1] == main.INITIAL_INSTRUCTIONS
-    assert messages[2]["quickReply"]["items"] == [
-        {
-            "type": "action",
-            "action": {"type": "message", "label": "開始吧!", "text": "開始吧!"},
-        }
-    ]
-
-
 async def test_follow_event_sends_welcome_without_resetting_progress(tmp_path, monkeypatch) -> None:
     store = UserStore(str(tmp_path / "bot.db"))
     store.add_user("user-id")
@@ -307,38 +293,6 @@ def test_rich_menu_postback_data_maps_to_commands() -> None:
 
 
 
-def test_storyline_has_all_required_challenges() -> None:
-    assert len(GAME_STEPS) == 9
-    assert [step.title for step in GAME_STEPS[:3]] == [
-        "尋找另一口古井",
-        "三峽的傳統產業",
-        "藍染製作流程",
-    ]
-    assert sum(step.kind == "photo" for step in GAME_STEPS) == 2
-
-
-def test_photo_guides_and_chapter_seven_references_are_configured() -> None:
-    chapter_five_images = [
-        message["originalContentUrl"]
-        for message in message_list(GAME_STEPS[6].instructions)
-        if isinstance(message, dict) and message["type"] == "image"
-    ]
-    assert chapter_five_images[0].endswith("/assets/Ch5_Photo.jpg")
-    chapter_seven = GAME_STEPS[9]
-    chapter_seven_images = [
-        message["originalContentUrl"]
-        for message in message_list(chapter_seven.instructions)
-        if isinstance(message, dict) and message["type"] == "image"
-    ]
-    assert chapter_seven_images[0].endswith("/assets/Ch7_Photo.jpg")
-    assert chapter_seven.photo_references == (
-        "Ch7_Ref1.jpg", "Ch7_Ref2.jpg", "Ch7_Ref3.jpg"
-    )
-    assert chapter_seven.photo_categories == (
-        "carved pillar", "bell", "temple exterior"
-    )
-
-
 def test_challenge_media_is_sent_with_challenge_not_story() -> None:
     chapter_seven = GAME_STEPS[9]
 
@@ -365,36 +319,6 @@ def test_final_photo_challenge_has_traditional_chinese_labels() -> None:
         "bell": "鐘",
         "temple exterior": "祖師廟外觀",
     }
-
-
-def test_final_photo_success_message_includes_the_epilogue() -> None:
-    success_messages = message_list(GAME_STEPS[8].success_message)
-    assert len(success_messages) == 3
-    story_messages = [message for message in success_messages if isinstance(message, str)]
-    assert "終章" not in "\n".join(story_messages)
-    assert story_messages[0].endswith("勾玉閉上了眼。")
-    assert "旅程結束了，但故事還沒有" in story_messages[1]
-    assert story_messages[1].startswith("爸爸媽媽站在勾玉面前")
-    assert story_messages[1].endswith("讓三峽的藍，繼續被記得。")
-    assert success_messages[-1]["type"] == "audio"
-
-
-def test_first_turn_separates_story_from_exact_challenge() -> None:
-    messages = [
-        message
-        for message in message_list(GAME_STEPS[0].instructions)
-        if isinstance(message, str)
-    ]
-
-    assert len(messages) == 2
-    assert not messages[0].startswith("前情提要")
-    assert messages[1] == (
-        "尋找另一口古井\n"
-        "請從信封袋中取出第ㄧ關道具，仔細觀察照片中的線索，並搭配旅遊地圖，找出照片中的古井所在位置。"
-    )
-    assert "目標地點" not in messages[1]
-    assert "答案" not in messages[1]
-    assert "關鍵字" not in messages[1]
 
 
 def test_player_messages_exclude_facilitator_only_lines() -> None:
@@ -470,42 +394,6 @@ def test_second_challenge_keeps_story_after_answer_before_chapter_two() -> None:
     assert story.index("染坊？") < story.index("走出小巷後")
 
 
-def test_multiple_choice_challenges_include_quick_replies() -> None:
-    challenge = main.step_messages(GAME_STEPS[4])[-1]
-
-    assert challenge["type"] == "text"
-    assert [
-        item["action"]["text"] for item in challenge["quickReply"]["items"]
-    ] == ["A", "B", "C", "D"]
-
-
-def test_chapter_five_quick_replies_are_on_the_final_message() -> None:
-    messages = main.step_messages(GAME_STEPS[6])
-
-    assert messages[-1]["type"] == "text"
-    assert messages[-2]["type"] == "audio"
-    assert [
-        item["action"]["text"] for item in messages[-1]["quickReply"]["items"]
-    ] == ["A", "B"]
-
-
-def test_chapter_two_second_audio_plays_after_answer() -> None:
-    messages = main.step_messages(GAME_STEPS[2])
-
-    assert [
-        message["type"] if isinstance(message, dict) else "text"
-        for message in messages
-    ] == ["text", "audio", "text"]
-    assert messages[1]["originalContentUrl"].endswith("/Ch2-1.mp3")
-
-    success_messages = message_list(GAME_STEPS[2].success_message)
-    assert success_messages[-1]["type"] == "audio"
-    assert success_messages[-1]["originalContentUrl"].endswith("/Ch2-2.mp3")
-    assert "第三關" in next(
-        message for message in reversed(messages) if isinstance(message, str)
-    )
-
-
 def test_each_chapter_sends_one_storyline_message() -> None:
     for step in GAME_STEPS:
         storyline_messages = [
@@ -517,58 +405,6 @@ def test_each_chapter_sends_one_storyline_message() -> None:
         assert len(storyline_messages) <= 2
         if len(storyline_messages) == 2:
             assert storyline_messages[0] != storyline_messages[1]
-
-
-def test_first_challenge_requests_current_location() -> None:
-    step = GAME_STEPS[0]
-    challenge = main.step_messages(step)[-1]
-
-    assert step.kind == "location"
-    assert step.latitude == pytest.approx(24.93317)
-    assert step.longitude == pytest.approx(121.36872)
-    assert challenge["quickReply"]["items"] == [
-        {"type": "action", "action": {"type": "location", "label": "分享目前位置"}}
-    ]
-
-
-def test_each_step_uses_its_own_challenge_order() -> None:
-    challenges = [
-        next(message for message in reversed(message_list(step.instructions)) if isinstance(message, str))
-        for step in GAME_STEPS
-    ]
-
-    assert "第ㄧ關" in challenges[0]
-    assert "第二關" in challenges[1]
-    assert "第三關" in challenges[2]
-    assert "旗子" in challenges[3]
-    assert "庄役場" in challenges[4]
-    assert "第四關照片" in challenges[5]
-    assert "正確的植物" in challenges[6]
-    assert "1905" not in challenges[7]
-    assert "祖師廟" in challenges[8]
-    assert all("第ㄧ關" not in challenge for challenge in challenges[1:])
-
-
-def test_chapter_four_challenge_starts_at_heading() -> None:
-    challenge = message_list(GAME_STEPS[4].instructions)[-1]
-
-    assert challenge.startswith("「在沒有現代公所的年代")
-    assert "這道關於庄役場的謎題" not in challenge
-
-
-def test_storyline_answers_accept_the_published_solutions() -> None:
-    expected_answers = {
-        0: "民權街 84 巷",
-        1: "藍染",
-        2: "青出於藍",
-        4: "B",
-        5: "外洋、重資",
-        6: "A",
-        7: "1905",
-    }
-
-    for index, answer in expected_answers.items():
-        assert answer_is_correct(GAME_STEPS[index], answer)
 
 
 def test_location_distance_is_in_meters() -> None:

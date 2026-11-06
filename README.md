@@ -20,7 +20,7 @@ This service runs the Sanxia blue-dye time-travel adventure in LINE:
 
 2. Copy `.env.example` to `.env` and fill in the LINE channel credentials and Gemini API key. `DATABASE_PATH` defaults to `bot.db`, and downloaded images default to `media/`.
 
-3. The current Sanxia storyline is kept word-for-word in [main-storyline-v2.txt](main-storyline-v2.txt) and loaded by [app/game.py](app/game.py). It includes:
+3. The current Sanxia storyline is kept word-for-word in [main-storyline.txt](main-storyline.txt) and loaded by [app/game.py](app/game.py). It includes:
 
    - the ancient well clue in 民權街 84 巷;
    - blue dye, dyeing-process ordering, and the 青出於染 flag;

@@ -80,7 +80,7 @@ class GameStep:
 
 # The manuscript is the source of truth. Keeping the player-facing text in the
 # supplied file prevents the game configuration from silently paraphrasing it.
-_STORYLINE_PATH = Path(__file__).resolve().parent.parent / "main-storyline-v2.txt"
+_STORYLINE_PATH = Path(__file__).resolve().parent.parent / "main-storyline.txt"
 _STORYLINE = _STORYLINE_PATH.read_text(encoding="utf-8")
 
 
