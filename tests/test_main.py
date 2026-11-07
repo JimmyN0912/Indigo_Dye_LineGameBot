@@ -257,9 +257,13 @@ async def test_challenge_ten_hint_starts_with_route_hint(tmp_path, monkeypatch) 
         "message": {"type": "text", "text": "提示"},
     })
 
-    assert replies[1] == "照片分別為外觀一張、內部一樓一張、二樓一張"
-
-
+    assert replies[1]["text"] == "照片分別為外觀一張、內部一樓一張、二樓一張"
+    assert replies[1]["quickReply"]["items"] == [
+        {
+            "type": "action",
+            "action": {"type": "camera", "label": "開啟相機"},
+        }
+    ]
 def test_story_without_route_hint_only_offers_continue() -> None:
     messages = main.step_messages(GAME_STEPS[6], story_index=0)
     message = messages[0]
@@ -301,6 +305,17 @@ def test_challenge_media_is_sent_with_challenge_not_story() -> None:
 
     assert not any(message.get("type") == "image" for message in story_messages if isinstance(message, dict))
     assert sum(message.get("type") == "image" for message in challenge_messages if isinstance(message, dict)) == 1
+
+
+def test_photo_challenges_offer_to_open_camera() -> None:
+    for step in (GAME_STEPS[3], GAME_STEPS[9]):
+        challenge = main.step_messages(step, len(step.story_chunks))[-1]
+
+        assert isinstance(challenge, dict)
+        assert challenge["quickReply"]["items"][-1] == {
+            "type": "action",
+            "action": {"type": "camera", "label": "開啟相機"},
+        }
 
 
 def test_incorrect_quick_reply_answer_preserves_quick_replies() -> None:

@@ -29,7 +29,7 @@ class AudioMessage(TypedDict):
 
 
 class QuickReplyAction(TypedDict):
-    type: Literal["message", "location"]
+    type: Literal["message", "location", "camera"]
     label: str
     text: NotRequired[str]
 

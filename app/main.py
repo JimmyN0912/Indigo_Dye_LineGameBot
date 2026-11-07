@@ -38,6 +38,11 @@ PHOTO_CATEGORY_LABELS = {
     "bell": "鐘",
     "temple exterior": "祖師廟外觀",
 }
+FINAL_PHOTO_PROGRESS_MESSAGES = {
+    1: "勾玉按下快門後，發現幼苗的光感覺又亮上幾分，這讓她看到一絲希望",
+    2: "突然天空開始變得灰暗，感覺有一股視線凝視著勾玉，讓她壓力倍增到手抖，但她還是堅定的按下快門",
+}
+INCORRECT_PHOTO_MESSAGE = "勾玉嘗試拍了張照片，發現並沒有任何變化"
 STEP_KIND_LABELS = {
     "text": "文字",
     "photo": "照片",
@@ -129,7 +134,7 @@ def step_messages(step: GameStep, story_index: int = 0) -> list[Message]:
     messages = [*media, challenge]
     if not isinstance(challenge, str):
         raise ValueError(f"Challenge text missing for step {step.title!r}")
-    if not step.quick_reply_options and not step.quick_reply_location:
+    if not step.quick_reply_options and not step.quick_reply_location and step.kind != "photo":
         return messages
     quick_reply_items = [
         {"type": "action", "action": {"type": "message", "label": option, "text": option}}
@@ -138,6 +143,10 @@ def step_messages(step: GameStep, story_index: int = 0) -> list[Message]:
     if step.quick_reply_location:
         quick_reply_items.append(
             {"type": "action", "action": {"type": "location", "label": "分享目前位置"}}
+        )
+    if step.kind == "photo":
+        quick_reply_items.append(
+            {"type": "action", "action": {"type": "camera", "label": "開啟相機"}}
         )
     messages[-1] = {
         "type": "text",
@@ -587,21 +596,31 @@ async def handle_event(event: dict[str, Any]) -> None:
                     if category not in completed_categories
                 ]
                 if remaining:
-                    await send_reply(
-                        store,
-                        reply_token,
-                        user_id,
-                        "收到，還需要："
-                        f"{'、'.join(PHOTO_CATEGORY_LABELS.get(category, category) for category in remaining)}。",
+                    progress_message = FINAL_PHOTO_PROGRESS_MESSAGES.get(
+                        len(completed_categories)
                     )
+                    if progress_message:
+                        await send_reply(
+                            store,
+                            reply_token,
+                            user_id,
+                            [progress_message],
+                        )
                 else:
                     await advance_player(store, user_id, reply_token, step.success_message)
             else:
                 await advance_player(store, user_id, reply_token, step.success_message)
         else:
+            retry_message = step_messages(step)[-1]
+            if isinstance(retry_message, dict) and "quickReply" in retry_message:
+                retry_message = {
+                    "type": "text",
+                    "text": INCORRECT_PHOTO_MESSAGE,
+                    "quickReply": retry_message["quickReply"],
+                }
             await send_reply(
                 store, reply_token, user_id,
-                "我無法確認這張照片，請再試一次。",
+                retry_message,
             )
         return
 
