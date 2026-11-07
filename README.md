@@ -20,14 +20,15 @@ This service runs the Sanxia blue-dye time-travel adventure in LINE:
 
 2. Copy `.env.example` to `.env` and fill in the LINE channel credentials and Gemini API key. `DATABASE_PATH` defaults to `bot.db`, and downloaded images default to `media/`.
 
-3. The complete Sanxia storyline is kept word-for-word in [main-storyline.txt](main-storyline.txt) and loaded by [app/game.py](app/game.py). It includes:
+3. The current Sanxia storyline is kept word-for-word in [main-storyline.txt](main-storyline.txt) and loaded by [app/game.py](app/game.py). It includes:
 
    - the ancient well clue in 民權街 84 巷;
    - blue dye, dyeing-process ordering, and the 青出於染 flag;
    - the 庄役場 and old dye-shop text challenges;
    - the 大菁 plant and 1905 history challenges;
-   - the chapter 5 guide photo, delivered with its challenge;
-   - one chapter 7 challenge requiring three Sanxia Zushi Temple photos in any order.
+   - the ten challenges in the v2 manuscript, including the dye vat, iron plaque, and seed clues;
+   - story sections delivered one chunk at a time with the `請繼續` quick reply;
+   - two progressive hints per challenge through the `提示` Rich Menu action.
 
    To customize the adventure, add steps in order with:
 
@@ -68,7 +69,7 @@ This service runs the Sanxia blue-dye time-travel adventure in LINE:
 
    On first contact, the bot greets the player by their LINE display name,
    sends the story introduction and game instructions, and offers `開始吧!` as
-   a quick reply. Selecting it starts the first challenge. Players can also
+   a quick reply. Selecting it starts the first story chunk. Players can also
    send `開始` or `重來` to restart, `進度` to see the current challenge, and
    `地圖` or `三峽觀光地圖` to receive the tourism map. Text answers ignore
    spaces and common Chinese or English punctuation.
