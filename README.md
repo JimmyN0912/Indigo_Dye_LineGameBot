@@ -65,6 +65,12 @@ This service runs the Sanxia blue-dye time-travel adventure in LINE:
       `originalContentUrl` and `duration`. Video messages may also include
       `trackingId`. The audio URL must be publicly reachable over HTTPS.
 
+      Challenge clues are sent as LINE Flex Messages, with a styled task title
+      and wrapped clue text. Existing quick replies, such as answer choices,
+      location sharing, and camera access, remain attached to the Flex Message.
+      Story passages and other status messages continue to use ordinary text
+      messages.
+
       `success_message` is sent after a correct response, followed by the next step's instructions. Incoming webhook events, outgoing replies, challenge submissions, and downloaded photo checks are retained in the SQLite database.
 
    On first contact, the bot greets the player by their LINE display name,

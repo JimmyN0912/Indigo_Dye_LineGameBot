@@ -318,6 +318,57 @@ def test_photo_challenges_offer_to_open_camera() -> None:
         }
 
 
+def test_challenges_use_flex_messages_and_keep_quick_replies() -> None:
+    step = GAME_STEPS[4]
+    challenge = main.step_messages(step, len(step.story_chunks))[-1]
+
+    assert isinstance(challenge, dict)
+    assert challenge["type"] == "flex"
+    assert challenge["altText"] == "目前任務：庄役場"
+    assert challenge["contents"]["header"]["contents"][1]["weight"] == "bold"
+    assert challenge["contents"]["body"]["contents"][0]["text"].startswith("「在沒有現代公所")
+    assert challenge["contents"]["body"]["contents"][2] == {
+        "type": "text",
+        "text": "✍️ 找到後，輸入答案",
+        "size": "md",
+        "color": "#6D28D9",
+        "weight": "bold",
+        "wrap": True,
+        "margin": "lg",
+    }
+    assert [item["action"]["label"] for item in challenge["quickReply"]["items"]] == ["A", "B", "C", "D"]
+
+
+def test_location_clue_formats_key_instructions() -> None:
+    challenge = main.step_messages(GAME_STEPS[0], len(GAME_STEPS[0].story_chunks))[-1]
+
+    assert isinstance(challenge, dict)
+    body = challenge["contents"]["body"]["contents"]
+    assert body[0] == {
+        "type": "text",
+        "contents": [
+            {"type": "span", "text": "請從信封袋取出"},
+            {"type": "span", "text": "藍染之路地圖", "weight": "bold"},
+            {"type": "span", "text": "（可同時搭配旅遊地圖），並根據地圖線索，找出照片中的古井所在位置，並"},
+            {"type": "span", "text": "發送指定位置之定位", "weight": "bold"},
+            {"type": "span", "text": "。"},
+        ],
+        "size": "md",
+        "color": "#263331",
+        "wrap": True,
+    }
+    assert body[2]["text"] == "📍 找到後，分享位置"
+    assert body[2]["weight"] == "bold"
+
+
+def test_every_challenge_uses_a_flex_message() -> None:
+    for step in GAME_STEPS:
+        challenge = main.step_messages(step, len(step.story_chunks))[-1]
+
+        assert isinstance(challenge, dict)
+        assert challenge["type"] == "flex"
+
+
 def test_incorrect_quick_reply_answer_preserves_quick_replies() -> None:
     challenge = main.step_messages(GAME_STEPS[4])[-1]
     retry = main.incorrect_answer_message(GAME_STEPS[4])

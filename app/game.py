@@ -50,7 +50,8 @@ class TextMessage(TypedDict):
 
 
 MediaMessage = ImageMessage | VideoMessage | AudioMessage
-Message = str | TextMessage | MediaMessage
+FlexMessage = dict[str, object]
+Message = str | TextMessage | MediaMessage | FlexMessage
 MessageContent = Message | list[Message]
 
 

@@ -134,8 +134,7 @@ def step_messages(step: GameStep, story_index: int = 0) -> list[Message]:
     messages = [*media, challenge]
     if not isinstance(challenge, str):
         raise ValueError(f"Challenge text missing for step {step.title!r}")
-    if not step.quick_reply_options and not step.quick_reply_location and step.kind != "photo":
-        return messages
+    challenge = clue_body_text(challenge)
     quick_reply_items = [
         {"type": "action", "action": {"type": "message", "label": option, "text": option}}
         for option in step.quick_reply_options
@@ -148,14 +147,119 @@ def step_messages(step: GameStep, story_index: int = 0) -> list[Message]:
         quick_reply_items.append(
             {"type": "action", "action": {"type": "camera", "label": "開啟相機"}}
         )
-    messages[-1] = {
+    messages[-1] = clue_message(
+        step.title,
+        challenge,
+        step.kind,
+        {"items": quick_reply_items} if quick_reply_items else None,
+    )
+    return messages
+
+
+def clue_body_text(text: str) -> str:
+    first_line, separator, remainder = text.partition("\n")
+    if separator and first_line.startswith("謎題"):
+        return remainder
+    return text
+
+
+def rich_text_component(text: str, bold_terms: tuple[str, ...]) -> dict[str, object]:
+    pattern = "|".join(re.escape(term) for term in bold_terms)
+    if not pattern:
+        return {
+            "type": "text",
+            "text": text,
+            "size": "md",
+            "color": "#263331",
+            "wrap": True,
+        }
+    parts = re.split(f"({pattern})", text)
+    contents = [
+        {
+            "type": "span",
+            "text": part,
+            **({"weight": "bold"} if part in bold_terms else {}),
+        }
+        for part in parts
+        if part
+    ]
+    return {
         "type": "text",
-        "text": challenge,
-        "quickReply": {
-            "items": quick_reply_items
+        "contents": contents,
+        "size": "md",
+        "color": "#263331",
+        "wrap": True,
+    }
+
+
+def clue_message(
+    title: str,
+    text: str,
+    kind: str,
+    quick_reply: dict[str, Any] | None = None,
+) -> Message:
+    action_instructions = {
+        "location": ("📍 找到後，分享位置", "#0B7285"),
+        "photo": ("📷 找到後，拍照上傳", "#C2410C"),
+        "text": ("✍️ 找到後，輸入答案", "#6D28D9"),
+    }
+    instruction, instruction_color = action_instructions[kind]
+    bold_terms = (
+        ("藍染之路地圖", "發送指定位置之定位")
+        if kind == "location"
+        else ()
+    )
+    message: dict[str, object] = {
+        "type": "flex",
+        "altText": f"目前任務：{title}",
+        "contents": {
+            "type": "bubble",
+            "size": "kilo",
+            "header": {
+                "type": "box",
+                "layout": "vertical",
+                "paddingBottom": "0px",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": "目前任務",
+                        "size": "sm",
+                        "color": "#557A76",
+                        "weight": "bold",
+                    },
+                    {
+                        "type": "text",
+                        "text": title,
+                        "size": "xl",
+                        "color": "#164A45",
+                        "weight": "bold",
+                        "wrap": True,
+                    },
+                ],
+            },
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "spacing": "md",
+                "contents": [
+                    rich_text_component(text, bold_terms),
+                    {"type": "separator", "margin": "lg"},
+                    {
+                        "type": "text",
+                        "text": instruction,
+                        "size": "md",
+                        "color": instruction_color,
+                        "weight": "bold",
+                        "wrap": True,
+                        "margin": "lg",
+                    },
+                ],
+            },
         },
     }
-    return messages
+    if quick_reply:
+        message["quickReply"] = quick_reply
+    return message
 
 
 def story_message(text: str, has_next: bool, target: str = "") -> Message:
