@@ -11,7 +11,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 
 from .config import Settings
-from .game import GAME_STEPS, GameStep, Message, answer_is_correct, current_step, distance_meters, map_message, message_list, route_hint_for_target, story_audio_message
+from .game import GAME_STEPS, GameStep, Message, answer_is_correct, challenge_audio_message, current_step, distance_meters, map_message, message_list, route_hint_for_target, story_audio_message
 from .integrations import GeminiClient, LineClient, UserStore
 
 logging.basicConfig(level=logging.INFO)
@@ -131,7 +131,6 @@ def step_messages(step: GameStep, story_index: int = 0) -> list[Message]:
                 audio_message["quickReply"] = story_message_payload["quickReply"]
             messages.append(audio_message)
         return messages
-    messages = [*media, challenge]
     if not isinstance(challenge, str):
         raise ValueError(f"Challenge text missing for step {step.title!r}")
     challenge = clue_body_text(challenge)
@@ -147,12 +146,18 @@ def step_messages(step: GameStep, story_index: int = 0) -> list[Message]:
         quick_reply_items.append(
             {"type": "action", "action": {"type": "camera", "label": "開啟相機"}}
         )
-    messages[-1] = clue_message(
+    challenge_message = clue_message(
         step.title,
         challenge,
         step.kind,
         {"items": quick_reply_items} if quick_reply_items else None,
     )
+    messages = [*media, challenge_message]
+    if step in GAME_STEPS:
+        audio_message = challenge_audio_message(GAME_STEPS.index(step))
+        if isinstance(challenge_message, dict) and "quickReply" in challenge_message:
+            audio_message["quickReply"] = challenge_message["quickReply"]
+        messages.append(audio_message)
     return messages
 
 
@@ -327,8 +332,17 @@ def location_retry_message(text: str) -> Message:
 
 
 def incorrect_answer_message(step: GameStep) -> Message:
-    challenge_message = step_messages(step)[-1]
-    if isinstance(challenge_message, dict) and "quickReply" in challenge_message:
+    challenge_message = next(
+        (
+            message
+            for message in step_messages(step)
+            if isinstance(message, dict)
+            and message.get("type") == "text"
+            and "quickReply" in message
+        ),
+        None,
+    )
+    if challenge_message is not None:
         return {
             "type": "text",
             "text": "不太對喔！再想想看！",

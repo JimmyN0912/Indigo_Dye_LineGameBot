@@ -124,6 +124,18 @@ def story_audio_message(index: int) -> AudioMessage:
     return _audio_message(f"msg{index + 1}.mp3", _STORY_AUDIO_DURATIONS_MS[index])
 
 
+_CHALLENGE_AUDIO_DURATIONS_MS = (
+    11311, 12826, 16509, 8986, 23327,
+    6034, 27951, 7079, 8516, 24111,
+)
+
+
+def challenge_audio_message(index: int) -> AudioMessage:
+    if not 0 <= index < len(_CHALLENGE_AUDIO_DURATIONS_MS):
+        raise IndexError(f"Challenge audio index out of range: {index}")
+    return _audio_message(f"Challenge{index + 1}.mp3", _CHALLENGE_AUDIO_DURATIONS_MS[index])
+
+
 def _story_between(start: str, end: str) -> str:
     start_index = _STORYLINE.index(start)
     end_index = _STORYLINE.index(end, start_index + len(start))
@@ -150,6 +162,15 @@ def _story_target(text: str) -> str:
     return re.sub(r"[「」『』\"“”]", "", target_match.group(1)).strip()
 
 
+def _is_route_hint_heading(stripped_line: str, previous_lines: list[str]) -> bool:
+    if re.match(r"^(?:😶‍🌫️)?路線提示", stripped_line):
+        return True
+    if not stripped_line.startswith("🔔提示"):
+        return False
+    previous_line = next((line.strip() for line in reversed(previous_lines) if line.strip()), "")
+    return "請前往" in previous_line and "🌟" in previous_line
+
+
 def _normalize_route_target(value: str) -> str:
     return re.sub(r"[\s，,。.!！?？:：；;、]+", "", value).casefold()
 
@@ -163,7 +184,7 @@ def _extract_route_hints() -> dict[str, tuple[str, ...]]:
 
     for line in _STORYLINE.splitlines():
         stripped_line = line.strip()
-        if re.match(r"^(?:😶‍🌫️)?路線提示", stripped_line):
+        if _is_route_hint_heading(stripped_line, story_lines):
             if in_route_hint and route_target and hint_lines:
                 key = _normalize_route_target(route_target)
                 route_hints[key] = (*route_hints.get(key, ()), "\n".join(hint_lines))
@@ -216,36 +237,46 @@ def _story_narrative(start: str, end: str) -> str:
 
 def _clean_story(text: str) -> str:
     cleaned_lines = []
+    previous_lines: list[str] = []
     in_hint = False
     in_route_hint = False
     for line in text.splitlines():
         stripped_line = line.strip()
-        if re.match(r"^(?:😶‍🌫️)?路線提示", stripped_line):
+        if _is_route_hint_heading(stripped_line, previous_lines):
             in_route_hint = True
+            previous_lines.append(line)
             continue
         if in_route_hint:
             if not stripped_line:
                 in_route_hint = False
+            previous_lines.append(line)
             continue
         if not stripped_line:
             if not in_hint:
                 cleaned_lines.append("")
+            previous_lines.append(line)
             continue
         if re.fullmatch(r"[（(]請繼續[）)]", stripped_line):
+            previous_lines.append(line)
             continue
         if stripped_line in {"前情提要", "第一章", "第二章", "第三章", "第四章", "第五章", "第六章", "第七章", "終章"}:
+            previous_lines.append(line)
             continue
         if stripped_line.startswith(("答案：", "答案:", "正確答案：", "正確答案:", "謎題答案：", "謎題答案:", "關鍵字：", "關鍵字:")):
+            previous_lines.append(line)
             continue
         if stripped_line.startswith("🔔提示"):
             in_hint = True
+            previous_lines.append(line)
             continue
         if in_hint:
             if stripped_line.startswith(("旁白", "：", ":", "勾玉", "婦人", "虎姑婆", "照片文字", "「", "（", "😶")):
                 in_hint = False
             else:
+                previous_lines.append(line)
                 continue
         cleaned_lines.append(re.sub(r"^旁白\s*[:：]?\s*", "", stripped_line))
+        previous_lines.append(line)
     return re.sub(r"\n{3,}", "\n\n", "\n".join(cleaned_lines)).strip()
 
 
@@ -256,7 +287,7 @@ def _story_chunk_parts(text: str) -> tuple[str, ...]:
 
     for line in text.splitlines():
         stripped_line = line.strip()
-        if re.match(r"^(?:😶‍🌫️)?路線提示", stripped_line):
+        if _is_route_hint_heading(stripped_line, current_lines):
             cleaned = _clean_story("\n".join(current_lines))
             if cleaned:
                 chunks.append(cleaned)
@@ -339,13 +370,13 @@ def _story_challenge(start: str, end: str) -> str:
 # or its photo passes the image check. Facilitator-only answer lines are kept in
 # the step's answer field and are not included in player-facing story segments.
 GAME_STEPS: list[GameStep] = [
-    GameStep("尋找另一口古井", _challenge("前情提要", "🌟謎題ㄧ｜尋找另一口古井", "答案：目標地點"), "location", "民權街84巷,民權街84巷的古井,古井", story_chunks=_story_chunks("前情提要", "🌟謎題ㄧ｜尋找另一口古井"), latitude=24.93317, longitude=121.36872, quick_reply_location=True, hints=("請查找藍染地圖之圖示一到三，並根據圖示方向前進。", "請查找藍染地圖之圖示一到三，並根據提示一方向前進，到指定地點後，再根據提示二右轉進入巷子，進入後找到提示三的位置即可解謎。")),
-    GameStep("找出藍染的線索", _challenge("第一章", "🌟謎題二｜找出藍染的線索", "謎題答案：碾布石"), "text", "碾布石", chapter=1, story_chunks=_story_chunks("第一章", "🌟謎題二｜找出藍染的線索"), hints=("請查找並仔細觀察藍染地圖之圖示三。", "請查找並仔細觀察藍染地圖圖示三上的文字敘述。")),
+    GameStep("尋找另一口古井", _challenge("前情提要", "🌟謎題ㄧ｜尋找另一口古井", "答案：目標地點"), "location", "民權街84巷,民權街84巷的古井,古井", story_chunks=_story_chunks("前情提要", "🌟謎題ㄧ｜尋找另一口古井"), latitude=24.93317, longitude=121.36872, quick_reply_location=True, hints=("請查找藍染地圖之圖示一到三，並根據圖示方向前進。", "請查找藍染地圖之圖示一到三，並根據圖示1方向前進，到指定地點後，再根據圖示2右轉進小巷內，進入後依循圖示3的位置即可解謎。")),
+    GameStep("找出藍染的線索", _challenge("第一章", "🌟謎題二｜找出藍染的線索", "謎題答案：碾布石"), "text", "碾布石", chapter=1, story_chunks=_story_chunks("第一章", "🌟謎題二｜找出藍染的線索"), hints=("仔細觀察題目中的石頭形狀，找出外形相同的石頭，看看上面寫著什麼字。", "答案共有三個字，第一個字是「碾」，試著找出剩下的一個字，拼出正確的工具名稱！")),
     GameStep("藍染製作流程", _challenge("第二章", "🌟謎題三｜拼出藍染工序", "答案：採藍&浸泡"), "text", "青出於染", chapter=2, story_chunks=_story_chunks_after("謎題答案：碾布石", "🌟謎題三｜拼出藍染工序"), hints=("請點閱「科普資料」尋找正確解答。", "請點閱「科普資料」中三峽藍染尋找正確解答。")),
     GameStep("藍地黃虎旗", _challenge("第三章", "🌟謎題四｜旗子的秘密", "完成第四關", include_answer_marker=True), "photo", chapter=3, story_chunks=_story_chunks_after("關鍵字：青出於染", "🌟謎題四｜旗子的秘密"), photo_check="The photo must clearly show a blue flag or textile with a yellow tiger emblem.", hints=("答案就藏在青出於染工作坊，請仔細觀察。", "進入青出於染工作坊後，請抬頭尋找解答。")),
     GameStep("庄役場", _challenge("第四章", "🌟謎題五｜庄役場​​知多少", "正確答案：B"), "text", "B,B.辦理地方行政事務,辦理地方行政事務", chapter=4, story_chunks=_story_chunks_after("完成第四關", "🌟謎題五｜庄役場​​知多少"), quick_reply_options=("A", "B", "C", "D"), hints=("請仔細觀察信封中的謎題五照片（早期庒役場照片）。", "請仔細觀察信封中的謎題五照片（早期庒役場照片）。")),
     GameStep("染缸上的文字", _challenge("正確答案：B", "🌟謎題六｜染缸上的文字", "答案：染"), "text", "染", chapter=4, story_chunks=_story_chunks_after("正確答案：B", "🌟謎題六｜染缸上的文字"), hints=("請仔細觀察文物館左邊的染缸", "請從面對染缸的方向，由左邊數到右邊的第三個染缸。")),
-    GameStep("消失的染坊文字", _challenge("答案：染", "謎題七｜消失的染坊文字", "答案：外洋、重資"), "text", "外洋、重資", chapter=4, story_chunks=_story_chunks_after("答案：染", "謎題七｜消失的染坊文字"), hints=("根據藍染之路圖示十，染坊會在三峽老街的左側（以照片方位為主）。", "根據藍染之路圖示十，染坊會在三峽老街的左側（以照片方位為主）。")),
+    GameStep("消失的染坊文字", _challenge("答案：染", "謎題七｜消失的染坊文字", "答案：外洋、重資"), "text", "外洋、重資", chapter=4, story_chunks=_story_chunks_after("答案：染", "謎題七｜消失的染坊文字"), hints=("根據藍染之路圖示10尋找，染坊會在三峽老街的左側（以照片方位為主）。", "沿著藍染之路圖示10尋找，會先找到第一格答案，才會找到第二格答案，兩個答案的距離有兩家至三家店面的距離遠。")),
     GameStep("代表希望的幼苗", [_asset_message("Challenge8_Photo.jpg"), _challenge("第五章", "🌟謎題八｜代表希望的幼苗", "答案：A(大菁)")], "text", "A,A.大菁,大菁", chapter=5, story_chunks=_story_chunks_after("答案：外洋、重資", "🌟謎題八｜代表希望的幼苗"), quick_reply_options=("A", "B"), hints=("請觀察阿姨唱的兩段歌謠中，歌詞對植物的描述", "對生植物、花瓣顏色為紫色")),
     GameStep("鑄鐵板上的文字", _challenge("第六章", "🌟謎題九｜鑄鐵板上的文字", "答案:葉中藍染而清"), "text", "葉中藍染而清", chapter=6, story_chunks=_story_chunks_after("答案：A(大菁)", "🌟謎題九｜鑄鐵板上的文字"), hints=("請尋找櫻花道上的鑄鐵板《三峽著名傳統產業發展歷程》", "鑄鐵板《三峽著名傳統產業發展歷程》中的「藍染」段落")),
     GameStep("回家的方法", [_asset_message("Challenge10_Photo.jpg"), _challenge("第七章", "謎題十｜回家的方法", "答案:照片x3")], "photo", "", chapter=7, story_chunks=_story_chunks_after("答案:葉中藍染而清", "謎題十｜回家的方法"), photo_check="The photo must clearly show one of the three required subjects at Sanxia Zushi Temple.", photo_references=("Ch7_Ref1.jpg", "Ch7_Ref2.jpg", "Ch7_Ref3.jpg"), photo_categories=("carved pillar", "bell", "temple exterior"), hints=("照片分別為外觀一張、內部一樓一張、二樓一張", "三張線索圖所對應的建築為百鳥朝梅柱、鐘、祖師廟外觀"), ending_chunks=_story_chunks_after("答案:照片x3", "終章") + _story_chunks_to_end("終章")),

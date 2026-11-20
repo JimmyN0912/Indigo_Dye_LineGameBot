@@ -187,7 +187,7 @@ async def test_route_question_returns_route_hint_instead_of_resending_story(tmp_
             "reply-token",
             {
                 "type": "text",
-                "text": "請查閱藍染地圖之圖示四與五，並根據圖示方向前進。",
+                "text": "請查閱藍染地圖之圖示4與5，並根據圖示3方向，向前走至圖示4後向左轉。",
                 "quickReply": {
                     "items": [
                         {"type": "action", "action": {"type": "message", "label": "請繼續", "text": "請繼續"}},
@@ -309,7 +309,7 @@ def test_challenge_media_is_sent_with_challenge_not_story() -> None:
 
 def test_photo_challenges_offer_to_open_camera() -> None:
     for step in (GAME_STEPS[3], GAME_STEPS[9]):
-        challenge = main.step_messages(step, len(step.story_chunks))[-1]
+        challenge = main.step_messages(step, len(step.story_chunks))[-2]
 
         assert isinstance(challenge, dict)
         assert challenge["quickReply"]["items"][-1] == {
@@ -320,7 +320,7 @@ def test_photo_challenges_offer_to_open_camera() -> None:
 
 def test_challenges_use_flex_messages_and_keep_quick_replies() -> None:
     step = GAME_STEPS[4]
-    challenge = main.step_messages(step, len(step.story_chunks))[-1]
+    challenge = main.step_messages(step, len(step.story_chunks))[-2]
 
     assert isinstance(challenge, dict)
     assert challenge["type"] == "flex"
@@ -340,7 +340,7 @@ def test_challenges_use_flex_messages_and_keep_quick_replies() -> None:
 
 
 def test_location_clue_formats_key_instructions() -> None:
-    challenge = main.step_messages(GAME_STEPS[0], len(GAME_STEPS[0].story_chunks))[-1]
+    challenge = main.step_messages(GAME_STEPS[0], len(GAME_STEPS[0].story_chunks))[-2]
 
     assert isinstance(challenge, dict)
     body = challenge["contents"]["body"]["contents"]
@@ -363,14 +363,31 @@ def test_location_clue_formats_key_instructions() -> None:
 
 def test_every_challenge_uses_a_flex_message() -> None:
     for step in GAME_STEPS:
-        challenge = main.step_messages(step, len(step.story_chunks))[-1]
+        challenge = main.step_messages(step, len(step.story_chunks))[-2]
 
         assert isinstance(challenge, dict)
         assert challenge["type"] == "flex"
 
 
+def test_challenge_audio_preserves_quick_replies() -> None:
+    messages = main.step_messages(GAME_STEPS[4], len(GAME_STEPS[4].story_chunks))
+
+    assert messages[-1]["quickReply"] == messages[-2]["quickReply"]
+
+
+def test_each_challenge_sends_matching_audio() -> None:
+    for index, step in enumerate(GAME_STEPS):
+        messages = main.step_messages(step, len(step.story_chunks))
+
+        assert messages[-1]["type"] == "audio"
+        assert messages[-1]["originalContentUrl"].endswith(
+            f"/Challenge{index + 1}.mp3"
+        )
+        assert messages[-1]["duration"] > 0
+
+
 def test_incorrect_quick_reply_answer_preserves_quick_replies() -> None:
-    challenge = main.step_messages(GAME_STEPS[4])[-1]
+    challenge = main.step_messages(GAME_STEPS[4])[-2]
     retry = main.incorrect_answer_message(GAME_STEPS[4])
 
     assert isinstance(challenge, dict)
