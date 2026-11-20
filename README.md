@@ -58,6 +58,8 @@ This service runs the Sanxia blue-dye time-travel adventure in LINE:
       referenced with `audio_asset_message("clue.m4a", 12345)`. Set
       `AUDIO_BASE_URL` to the public HTTPS URL ending in `/assets/voice` before
       starting the bot (for example, `https://YOUR_PUBLIC_HOST/assets/voice`).
+      The ten challenge prompts automatically send `Challenge1.mp3` through
+      `Challenge10.mp3` after their corresponding text.
       The guide photos continue to use `ASSET_BASE_URL` and `/assets`.
 
       LINE allows up to 5 messages per reply. Image and video messages need

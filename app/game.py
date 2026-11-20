@@ -123,6 +123,18 @@ def story_audio_message(index: int) -> AudioMessage:
     return _audio_message(f"msg{index + 1}.mp3", _STORY_AUDIO_DURATIONS_MS[index])
 
 
+_CHALLENGE_AUDIO_DURATIONS_MS = (
+    11311, 12826, 16509, 8986, 23327,
+    6034, 27951, 7079, 8516, 24111,
+)
+
+
+def challenge_audio_message(index: int) -> AudioMessage:
+    if not 0 <= index < len(_CHALLENGE_AUDIO_DURATIONS_MS):
+        raise IndexError(f"Challenge audio index out of range: {index}")
+    return _audio_message(f"Challenge{index + 1}.mp3", _CHALLENGE_AUDIO_DURATIONS_MS[index])
+
+
 def _story_between(start: str, end: str) -> str:
     start_index = _STORYLINE.index(start)
     end_index = _STORYLINE.index(end, start_index + len(start))
