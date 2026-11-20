@@ -187,7 +187,7 @@ async def test_route_question_returns_route_hint_instead_of_resending_story(tmp_
             "reply-token",
             {
                 "type": "text",
-                "text": "請查閱藍染地圖之圖示四與五，並根據圖示方向前進。",
+                "text": "請查閱藍染地圖之圖示4與5，並根據圖示3方向，向前走至圖示4後向左轉。",
                 "quickReply": {
                     "items": [
                         {"type": "action", "action": {"type": "message", "label": "請繼續", "text": "請繼續"}},
